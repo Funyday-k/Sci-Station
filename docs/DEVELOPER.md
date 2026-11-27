@@ -61,6 +61,28 @@ UI changes and reviews apply these layout and interaction rules across all deskt
 - **No first-viewport duplication:** the same record (such as an active task, paper or note) appears at most once in the first viewport.
 - **Command parity:** frontend menus and toolbars for actions that also exist in the native macOS menu dispatch the same command IDs so behavior and availability stay consistent.
 
+## Shared UI components
+
+`web/static/components.css` owns base element styles (`button`, `input`, `select`, `textarea`, `dialog`) and shared workbench primitives using semantic tokens from `web/static/tokens.css`. Page stylesheets must not declare bare base-element rules for these controls; `Tools/scripts/check-frontend-metrics.py` enforces this through `base_control_allowlist`. All interactive controls share one focus ring (`2px solid var(--focus-ring)` with `2px` offset), one disabled state (`opacity: 0.48; cursor: not-allowed`), one radius per size (`--radius-sm` controls, `--radius-md` cards/menus, `--radius-lg` dialogs), and honor `prefers-reduced-motion: reduce`.
+
+| Component | Markup contract | Localization attributes | Keyboard behaviour |
+| --- | --- | --- | --- |
+| Buttons | `<button type="button" class="button [primary\|secondary\|ghost\|danger]">` or `.btn-icon` / `.icon-button` / `.workspace-icon` | `data-l10n-text` / `data-en`; icon-only buttons require `aria-label` + `data-l10n-aria-label` (or `data-en-aria-label`) | Native `Enter`/`Space` activation; visible focus ring on `:focus-visible` |
+| Form fields & switch | `<label>` wrapping or `for`-linked `<input>`, `<select>`, `<textarea>`, or `<input type="checkbox" role="switch">` | `<label>` text with `data-en` / `data-l10n-text`; input hint attributes localized via `interface-catalog.json` | Standard tab order; switch toggles on `Space` |
+| Dialog & footer | `<dialog aria-labelledby="…">` containing body and `<footer class="dialog-footer">` (`.dialog-footer-leading` / `.dialog-footer-trailing` or `.dialog-footer__actions`) | Heading `data-en` / `data-l10n-text`; close button `aria-label` | Modal `Escape` closes and restores focus to opener; `Tab` cycles inside |
+| Card variants | `<section class="card card--primary\|card--secondary\|card--compact\|card--empty">` | Heading uses `data-l10n-text` / `data-en` | Static landmark container; interactive children follow normal tab order |
+| Empty row | `<section class="empty-row">` with `.empty-row__title` and `.empty-row__meta` (≤ 56px tall) | `data-l10n-text` / `data-en` on title and status text | Non-interactive summary row (optional trailing `.action-link`) |
+| Action link | `<a class="action-link" href="…">` or `<button type="button" class="action-link">` | Link label uses `data-l10n-text` / `data-en` (trailing `→` is decorative CSS) | `Enter` activates link (`Enter`/`Space` on button); high-contrast `:focus-visible` ring |
+| Quick add strip | `<section class="quick-add-row">` with `.quick-add-row__label` and `.quick-add-row__items` containing `.action-link` items | `aria-label` + label text via `interface-catalog.json` | Sequential tab stops across empty-module action links |
+| Badge / status badge | `<span class="badge">` or `<span class="status-badge status-badge--accent\|success\|warning\|danger">` | Status label localized via `interface-catalog.json` | Non-interactive indicator; never convey state by color alone |
+| Menu | Trigger with `aria-haspopup="menu"` + `aria-expanded` + `aria-controls`; container `.menu` (`role="menu"`) with `.menu-item` (`role="menuitem"`) | Trigger `aria-label` and item text localized | `ArrowDown`/`ArrowUp`/`Home`/`End` navigate items; `Escape` closes and restores focus to trigger |
+| Drawer | `<aside class="drawer">` paired with toggle button (`aria-controls`, `aria-expanded`) | `aria-label` or `aria-labelledby` localized | `Escape` closes overlay drawers and restores focus to trigger |
+| Disclosure | `<details class="disclosure"><summary>…</summary>…</details>` | Summary label uses `data-en` / `data-l10n-text` | Native `Enter`/`Space` toggles `<details>`; auto-opens on validation error or non-default value |
+| Diff view | `<div class="diff-view" role="region" aria-label="…">` containing `.diff-line` rows (`.diff-add`, `.diff-remove`, `.diff-context`, `.diff-hunk`, `.diff-header`) with `.diff-gutter` + `.diff-text` | Region `aria-label` localized; diff text rendered via `textContent` only | Scrollable region; line gutters (`+`/`−`) preserve non-color meaning |
+| Page header & toolbar | `<header class="page-header">` (`.page-header__title`, `.page-header__subtitle`) and `<div class="toolbar">` | Title/subtitle and toolbar control labels localized | Standard horizontal tab order without wrapping above two bars |
+
+Tests and smokes should select interactive targets using stable `id` or `data-*` / `data-testid` attributes rather than styling classes.
+
 ## Work within the domain boundaries
 
 - Put persistence and validation in the owning service or repository. The shell coordinates navigation and dispatch, and the frontend presents state. Share one paper and PDF, with per-project state kept as an association. Use test fixtures with conflicting revisions, missing references or partially completed operations when changing state transitions.

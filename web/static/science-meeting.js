@@ -112,6 +112,7 @@
     project = session && projects.find(item => item.id === session.project_id) || null;
     if (!btnOpen && (byId("meeting-menu-commands") || byId("chat-toolbar"))) {
       btnOpen = btn("科研记录", "science-meeting-open"); btnOpen.title = "核对论文原文、保存笔记或建立项目任务";
+      if (btnOpen.dataset) btnOpen.dataset.testid = "science-meeting-open";
       btnOpen.addEventListener("click", show);
       const menuCommands = byId("meeting-menu-commands");
       if (menuCommands) {

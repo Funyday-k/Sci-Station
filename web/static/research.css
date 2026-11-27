@@ -29,52 +29,17 @@ body {
   -webkit-font-smoothing: antialiased
 }
 
-button,
-input,
-select,
-textarea {
-  color: inherit;
-  font: inherit
-}
 
-button,
-select,
-a {
-  touch-action: manipulation
-}
 
-button {
-  cursor: pointer
-}
 
-button:disabled {
-  cursor: default;
-  opacity: .55
-}
 
 a {
   color: var(--accent);
   text-decoration: none
 }
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-textarea:focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px
-}
 
-button {
-  border: 0;
-  background: transparent
-}
 
-button,
-a {
-  -webkit-tap-highlight-color: transparent
-}
 
 h1,
 h2,
@@ -87,9 +52,6 @@ p {
   font-weight: 600
 }
 
-[hidden] {
-  display: none !important
-}
 
 .ui-icon {
   width: 18px;
@@ -618,7 +580,7 @@ kbd {
   accent-color: var(--accent)
 }
 
-dialog:has([data-library-paper]) .dialog-head {
+#modal:has([data-library-paper]) .dialog-head {
   position: sticky;
   z-index: var(--z-sticky);
   top: 0;
@@ -653,7 +615,7 @@ dialog:has([data-library-paper]) .dialog-head {
 
 .query,
 .field input,
-select,
+.workspace-page select,
 .graph-picker input,
 .field textarea,
 .query-input {
@@ -691,7 +653,7 @@ select,
   color: var(--ink-muted)
 }
 
-dialog {
+#modal {
   width: min(565px, calc(100% - 28px));
   max-height: 88vh;
   overflow: auto;
@@ -703,13 +665,10 @@ dialog {
   box-shadow: var(--shadow-lg)
 }
 
-dialog.wide {
+#modal.wide {
   width: min(875px, calc(100% - 28px))
 }
 
-dialog::backdrop {
-  background: var(--scrim)
-}
 
 .dialog-head {
   display: flex;

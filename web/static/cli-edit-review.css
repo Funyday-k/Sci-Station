@@ -1,93 +1,16 @@
-/* Shared diff-view component (lifted from studio.css; consolidated into components.css in #40). */
-.diff-view {
-  margin: 0;
-  overflow: auto;
-  max-height: 28vh;
-  padding: 6px 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-  font: 12px/1.55 ui-monospace, "SF Mono", Menlo, monospace;
-  direction: ltr;
-  text-align: left;
-  unicode-bidi: plaintext;
-}
-.diff-line,
-.diff-add,
-.diff-remove,
-.diff-header {
-  display: block;
-  min-width: max-content;
-}
-.diff-view .diff-line {
-  display: grid;
-  grid-template-columns: 2ch minmax(0, 1fr);
-  gap: 8px;
-  padding: 0 10px;
-}
-.diff-gutter {
-  user-select: none;
-  text-align: center;
-  font-weight: 600;
-}
-.diff-text {
-  white-space: pre;
-}
-.diff-context {
-  color: var(--ink-primary);
-}
-.diff-context .diff-gutter {
-  color: var(--ink-muted);
-}
-.diff-add {
-  color: var(--diff-add-ink);
-  background: var(--diff-add-bg);
-}
-.diff-add .diff-gutter {
-  color: var(--workspace-diff-add-gutter);
-}
-.diff-remove {
-  color: var(--diff-remove-ink);
-  background: var(--diff-remove-bg);
-}
-.diff-remove .diff-gutter {
-  color: var(--workspace-diff-remove-gutter);
-}
-.diff-header {
-  color: var(--ink-muted);
-  background: var(--bg-subtle);
-  font-weight: 600;
-}
-
-/* CLI edit approval dialog (independent of studio.css). */
+/* CLI edit approval dialog layout. Shared .diff-view and .dialog-footer live in components.css. */
 #cli-edit-dialog {
   width: min(740px, 94vw);
   max-height: 88dvh;
   overflow: auto;
-  box-sizing: border-box;
-  background: var(--bg-surface);
-  color: var(--ink-primary);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
   padding: 22px;
 }
-#cli-edit-dialog::backdrop { background: rgb(25 26 37 / 40%); }
-#cli-edit-dialog [hidden] { display: none !important; }
-#cli-edit-dialog header,
-#cli-edit-dialog .dialog-footer,
-.dialog-footer-leading,
-.dialog-footer-trailing {
+#cli-edit-dialog header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-#cli-edit-dialog header,
-#cli-edit-dialog .dialog-footer {
   justify-content: space-between;
-}
-#cli-edit-dialog .dialog-footer-trailing {
-  margin-inline-start: auto;
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }
 #cli-edit-dialog h2, #cli-edit-dialog h3 { margin: 0; }
 #cli-edit-dialog h2 { font-size: var(--text-xl); }

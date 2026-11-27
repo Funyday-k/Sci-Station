@@ -8,6 +8,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Consolidate base form/button/dialog controls and shared workbench components (`card`, `empty-row`, `action-link`, `badge`/`status-badge`, `menu`, `drawer`, `disclosure`, `diff-view`, `page-header`, `toolbar`) into `components.css` with unified focus rings, disabled styling, and reduced-motion support, enforced by `base_control_allowlist` in the frontend metrics ratchet.
 - Consolidate all theme palettes, semantic colors, 6-step type ramp, 3-step border radii, 4px spacing scale, and named z-index layers into `tokens.css`; drive dark mode solely via `[data-theme="dark"]`, remove legacy `color-themes.css` alias patches, and verify WCAG AA contrast across all 16 locale × theme × color-theme combinations.
 
 - Introduce pilot semantic tokens (`tokens.css`) and shared card, empty-row, action-link, and quick-add components (`components.css`); deduplicate today’s tasks between Home’s Today and Calendar widgets, render empty AI Review as a compact status row, and organize Project Overview into a top summary strip, two-column work area, and bottom Quick add row for empty modules.

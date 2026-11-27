@@ -8,7 +8,6 @@
   background:var(--bg-subtle); color:var(--ink-primary);
   font:var(--text-md)/1.55 var(--workspace-font);
 }
-#context-rail[hidden], #context-rail [hidden], #shell-divider[hidden], #projectnav[hidden] { display:none!important; }
 #context-rail h2 {font-size: var(--text-lg);margin:0;}
 .rail-heading {display:flex;align-items:center;gap:6px;}
 .rail-heading h2 {flex:1;min-width:0;}

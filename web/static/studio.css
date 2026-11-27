@@ -36,40 +36,9 @@ body {
 :where(h1, h2, h3, h4, h5, h6, strong, b) {
   font-weight: 600;
 }
-button,
-input,
-textarea,
-select {
-  font: inherit;
-  color: inherit;
-}
-button,
-a,
-select {
-  touch-action: manipulation;
-}
-button {
-  cursor: pointer;
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 a {
   color: inherit;
   text-decoration: none;
-}
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
-summary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-[hidden] {
-  display: none !important;
 }
 .sr-only {
   position: absolute;
@@ -394,26 +363,13 @@ summary:focus-visible {
   font-weight: 500;
   margin-bottom: 10px;
 }
-input,
-textarea,
-select {
+.app-shell :is(input, textarea, select) {
   border: 1px solid var(--border-control);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   padding: 9px 11px;
   min-width: 0;
   font-size: var(--text-md);
-}
-textarea {
-  display: block;
-  resize: vertical;
-  width: 100%;
-  line-height: 1.75;
-}
-input::placeholder,
-textarea::placeholder {
-  color: var(--ink-muted);
-  opacity: 1;
 }
 .setup-panel textarea {
   margin: 0 0 25px;
@@ -1240,36 +1196,6 @@ textarea::placeholder {
   max-width: 45%;
   padding: 6px 8px;
   font-size: var(--text-sm);
-}
-input[role="switch"] {
-  appearance: none;
-  width: 35px;
-  height: 20px;
-  padding: 0;
-  position: relative;
-  border: 1px solid var(--line);
-  background: var(--bg-subtle);
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-input[role="switch"]:before {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface);
-  transition: transform 0.15s;
-}
-input[role="switch"]:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-input[role="switch"]:checked:before {
-  transform: translateX(15px);
 }
 [data-theme="dark"] input[role="switch"]:checked:before {
   background: var(--bg-subtle);

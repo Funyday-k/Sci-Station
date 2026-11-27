@@ -19,7 +19,6 @@
 .science-meeting-dialog blockquote {margin:10px 0;padding:3px 12px;border-left: 3px solid var(--accent);white-space:pre-wrap;}
 .science-meeting-dialog a {color:var(--accent);}
 .science-meeting-dialog form {display:grid;gap:12px;margin-top:18px;}
-.science-meeting-dialog form[hidden],.science-meeting-open[hidden]{display:none!important;}
 .science-meeting-dialog label {display:grid;gap:4px;font-size: var(--text-sm);}
 .science-meeting-dialog input,.science-meeting-dialog select,.science-meeting-dialog textarea {font:inherit;line-height:1.45;color:inherit;background:Canvas;border:1px solid color-mix(in srgb,CanvasText 24%,transparent);border-radius: var(--radius-sm);padding:7px;width:100%;box-sizing:border-box;}
 .science-meeting-dialog textarea {resize:vertical;min-height:110px;}

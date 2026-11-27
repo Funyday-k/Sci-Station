@@ -28,10 +28,7 @@ label {
   margin: 0
 }
 
-input,
-select,
-textarea,
-button {
+.workspace-page :is(input, select, textarea, button) {
   font: inherit;
   color: var(--ink-muted);
   background: var(--bg-canvas);
@@ -40,10 +37,7 @@ button {
   padding: 8px 11px
 }
 
-input,
-textarea {
-  width: 100%
-}
+.workspace-page :is(input, textarea) { width: 100%; }
 
 .line input,
 .line select {
@@ -51,10 +45,7 @@ textarea {
   min-width: 0
 }
 
-button {
-  white-space: nowrap;
-  cursor: pointer
-}
+.workspace-page button { white-space: nowrap; }
 
 .primary {
   background: var(--accent);
@@ -62,10 +53,6 @@ button {
   border-color: transparent
 }
 
-button:disabled {
-  opacity: .55;
-  cursor: default
-}
 
 .panel,
 form {
@@ -118,13 +105,6 @@ details>summary {
   margin-top: 12px
 }
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px
-}
 
 #markdown {
   font-family: ui-monospace, monospace

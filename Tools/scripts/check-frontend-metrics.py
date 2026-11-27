@@ -17,7 +17,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BASELINE_REL = Path("Tools/frontend-metrics.json")
 STATIC_REL = Path("web/static")
-DEFAULT_PALETTE_ALLOWLIST = ("workspace-theme.css", "tokens.css")
+DEFAULT_PALETTE_ALLOWLIST = ("tokens.css",)
+DEFAULT_BASE_CONTROL_ALLOWLIST = ("components.css",)
 
 SCALAR_METRIC_KEYS = (
     "hex_colors_outside_palette",
@@ -28,9 +29,14 @@ SCALAR_METRIC_KEYS = (
     "distinct_numeric_z_indices",
     "duplicate_custom_properties",
     "html_sinks",
+    "base_control_rules_outside_components",
 )
 
 IMPORTANT_RE = re.compile(r"!\s*important\b", re.I)
+BARE_BASE_CONTROL_RE = re.compile(
+    r"^(?:button|input|select|textarea|dialog)(?:(?:::?[a-zA-Z0-9_-]+(?:\([^)]*\))?)|(?:\[[^\]]*\]))*$",
+    re.I,
+)
 HEX_COLOR_RE = re.compile(
     r"(?<![0-9a-zA-Z_-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![0-9a-fA-F_-])"
 )
@@ -113,6 +119,7 @@ class MetricsReport:
     numeric_z_indices: dict[str, tuple[Occurrence, ...]]
     duplicate_custom_properties: dict[str, tuple[Occurrence, ...]]
     html_sinks: tuple[Occurrence, ...]
+    base_control_rules_outside_components: tuple[Occurrence, ...]
     html_entry_points: dict[str, HtmlEntryMetrics]
 
     def scalar_counts(self) -> dict[str, int]:
@@ -125,6 +132,7 @@ class MetricsReport:
             "distinct_numeric_z_indices": len(self.numeric_z_indices),
             "duplicate_custom_properties": len(self.duplicate_custom_properties),
             "html_sinks": len(self.html_sinks),
+            "base_control_rules_outside_components": len(self.base_control_rules_outside_components),
         }
 
 
@@ -256,6 +264,45 @@ def _record_css_declaration(
     declarations.append((prop, val_raw, prop_offset, val_offset))
 
 
+def _split_selector_list(header: str) -> list[str]:
+    """Split a CSS selector list on top-level commas (outside parentheses and brackets)."""
+    parts: list[str] = []
+    start = 0
+    paren = 0
+    bracket = 0
+    quote: str | None = None
+    i = 0
+    n = len(header)
+    while i < n:
+        ch = header[i]
+        if quote:
+            if ch == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in ('"', "'"):
+            quote = ch
+        elif ch == "(":
+            paren += 1
+        elif ch == ")":
+            paren = max(0, paren - 1)
+        elif ch == "[":
+            bracket += 1
+        elif ch == "]":
+            bracket = max(0, bracket - 1)
+        elif ch == "," and paren == 0 and bracket == 0:
+            part = header[start:i].strip()
+            if part:
+                parts.append(part)
+            start = i + 1
+        i += 1
+    tail = header[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
 def _walk_css_block(
     text: str,
     start: int,
@@ -263,6 +310,7 @@ def _walk_css_block(
     media_rules: list[tuple[str, int]],
     declarations: list[tuple[str, str, int, int]],
     is_decl_block: bool = False,
+    selectors: list[tuple[str, int]] | None = None,
 ) -> None:
     i = start
     stmt_start = start
@@ -298,11 +346,13 @@ def _walk_css_block(
             lower_header = header.lower()
             if re.match(r"^@media\b", lower_header):
                 media_rules.append((header, header_offset))
-                _walk_css_block(text, i + 1, close_pos, media_rules, declarations, is_decl_block=False)
+                _walk_css_block(text, i + 1, close_pos, media_rules, declarations, is_decl_block=False, selectors=selectors)
             elif any(re.match(rf"^{re.escape(at)}\b", lower_header) for at in CSS_GROUP_ATRULES):
-                _walk_css_block(text, i + 1, close_pos, media_rules, declarations, is_decl_block=False)
+                _walk_css_block(text, i + 1, close_pos, media_rules, declarations, is_decl_block=False, selectors=selectors)
             else:
-                _walk_css_block(text, i + 1, close_pos, media_rules, declarations, is_decl_block=True)
+                if selectors is not None and header and not lower_header.startswith("@"):
+                    selectors.append((header, header_offset))
+                _walk_css_block(text, i + 1, close_pos, media_rules, declarations, is_decl_block=True, selectors=selectors)
             i = close_pos + 1
             stmt_start = i
             continue
@@ -579,6 +629,8 @@ def _scan_css_text(
     custom_prop_occurrences: dict[str, list[Occurrence]],
     custom_prop_files: dict[str, set[str]],
     line_offset: int = 0,
+    allow_base_controls: bool = True,
+    base_control_occurrences: list[Occurrence] | None = None,
 ) -> None:
     stripped = _strip_css_comments(text)
     raw_lines = text.splitlines()
@@ -591,7 +643,16 @@ def _scan_css_text(
 
     media_rules: list[tuple[str, int]] = []
     declarations: list[tuple[str, str, int, int]] = []
-    _walk_css_block(stripped, 0, len(stripped), media_rules, declarations)
+    selectors: list[tuple[str, int]] = []
+    _walk_css_block(stripped, 0, len(stripped), media_rules, declarations, selectors=selectors)
+
+    if not allow_base_controls and base_control_occurrences is not None:
+        for header, header_offset in selectors:
+            line_no = _line_of(starts, header_offset, line_offset)
+            for sel in _split_selector_list(header):
+                compact = re.sub(r"\s+", " ", sel).strip()
+                if BARE_BASE_CONTROL_RE.fullmatch(compact):
+                    base_control_occurrences.append(Occurrence(rel_path, line_no, compact))
 
     for header, header_offset in media_rules:
         line_no = _line_of(starts, header_offset, line_offset)
@@ -647,10 +708,15 @@ def _scan_js_sinks(
         sinks.append(Occurrence(rel_path, local_line + line_offset, snippet))
 
 
-def collect_metrics(root: Path, palette_allowlist: list[str] | set[str]) -> MetricsReport:
+def collect_metrics(
+    root: Path,
+    palette_allowlist: list[str] | set[str],
+    base_control_allowlist: list[str] | set[str] | tuple[str, ...] = DEFAULT_BASE_CONTROL_ALLOWLIST,
+) -> MetricsReport:
     """Scan web/static/*.css|*.js|*.html under root and return detailed metrics."""
     static_dir = root / STATIC_REL
     allowset = {entry.strip() for entry in palette_allowlist if entry.strip()}
+    base_allowset = {entry.strip() for entry in base_control_allowlist if entry.strip()}
 
     hex_occurrences: list[Occurrence] = []
     important_occurrences: list[Occurrence] = []
@@ -660,6 +726,7 @@ def collect_metrics(root: Path, palette_allowlist: list[str] | set[str]) -> Metr
     numeric_z_indices: dict[str, list[Occurrence]] = defaultdict(list)
     custom_prop_occurrences: dict[str, list[Occurrence]] = defaultdict(list)
     custom_prop_files: dict[str, set[str]] = defaultdict(set)
+    base_control_occurrences: list[Occurrence] = []
     html_sinks: list[Occurrence] = []
     html_entry_points: dict[str, HtmlEntryMetrics] = {}
 
@@ -669,6 +736,7 @@ def collect_metrics(root: Path, palette_allowlist: list[str] | set[str]) -> Metr
     for path in sorted(static_dir.glob("*.css")):
         rel_path = path.relative_to(root).as_posix()
         allow_hex = path.name in allowset or rel_path in allowset
+        allow_base = path.name in base_allowset or rel_path in base_allowset
         _scan_css_text(
             text=path.read_text(encoding="utf-8"),
             rel_path=rel_path,
@@ -682,6 +750,8 @@ def collect_metrics(root: Path, palette_allowlist: list[str] | set[str]) -> Metr
             numeric_z_indices=numeric_z_indices,
             custom_prop_occurrences=custom_prop_occurrences,
             custom_prop_files=custom_prop_files,
+            allow_base_controls=allow_base,
+            base_control_occurrences=base_control_occurrences,
         )
 
     for path in sorted(static_dir.glob("*.js")):
@@ -700,6 +770,7 @@ def collect_metrics(root: Path, palette_allowlist: list[str] | set[str]) -> Metr
         for start_line, body in parser.inline_scripts:
             _scan_js_sinks(body, rel_path, html_sinks, line_offset=start_line - 1)
         allow_hex = path.name in allowset or rel_path in allowset
+        allow_base = path.name in base_allowset or rel_path in base_allowset
         for start_line, body in parser.inline_styles:
             _scan_css_text(
                 text=body,
@@ -715,6 +786,8 @@ def collect_metrics(root: Path, palette_allowlist: list[str] | set[str]) -> Metr
                 custom_prop_occurrences=custom_prop_occurrences,
                 custom_prop_files=custom_prop_files,
                 line_offset=start_line - 1,
+                allow_base_controls=allow_base,
+                base_control_occurrences=base_control_occurrences,
             )
 
     duplicate_custom_properties = {
@@ -732,6 +805,7 @@ def collect_metrics(root: Path, palette_allowlist: list[str] | set[str]) -> Metr
         numeric_z_indices={k: tuple(numeric_z_indices[k]) for k in sorted(numeric_z_indices, key=int)},
         duplicate_custom_properties=duplicate_custom_properties,
         html_sinks=tuple(html_sinks),
+        base_control_rules_outside_components=tuple(base_control_occurrences),
         html_entry_points=html_entry_points,
     )
 
@@ -747,9 +821,18 @@ def load_baseline(baseline_path: Path) -> dict:
         isinstance(item, str) for item in data["palette_allowlist"]
     ):
         raise ValueError("Baseline 'palette_allowlist' must be a list of filenames")
+    if "base_control_allowlist" in data:
+        if not isinstance(data["base_control_allowlist"], list) or not all(
+            isinstance(item, str) for item in data["base_control_allowlist"]
+        ):
+            raise ValueError("Baseline 'base_control_allowlist' must be a list of filenames")
+    else:
+        data["base_control_allowlist"] = list(DEFAULT_BASE_CONTROL_ALLOWLIST)
     if not isinstance(data["metrics"], dict):
         raise ValueError("Baseline 'metrics' must be an object")
     for metric_key in SCALAR_METRIC_KEYS:
+        if metric_key == "base_control_rules_outside_components" and metric_key not in data["metrics"]:
+            continue
         value = data["metrics"].get(metric_key)
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
             raise ValueError(f"Baseline metrics[{metric_key!r}] must be a non-negative integer")
@@ -799,9 +882,12 @@ def compare_with_baseline(
         "distinct_numeric_z_indices": _format_grouped_occurrences(report.numeric_z_indices),
         "duplicate_custom_properties": _format_grouped_occurrences(report.duplicate_custom_properties),
         "html_sinks": _format_flat_occurrences(report.html_sinks),
+        "base_control_rules_outside_components": _format_flat_occurrences(report.base_control_rules_outside_components),
     }
 
     for key in SCALAR_METRIC_KEYS:
+        if key not in baseline_metrics:
+            continue
         actual = counts[key]
         limit = baseline_metrics[key]
         if actual > limit:
@@ -867,7 +953,11 @@ def compare_with_baseline(
     return failures, improvements
 
 
-def format_baseline(report: MetricsReport, palette_allowlist: list[str]) -> str:
+def format_baseline(
+    report: MetricsReport,
+    palette_allowlist: list[str],
+    base_control_allowlist: list[str] | tuple[str, ...] = DEFAULT_BASE_CONTROL_ALLOWLIST,
+) -> str:
     """Format current metrics as JSON where lowering any baseline is a one-line edit."""
     counts = report.scalar_counts()
     lines: list[str] = ["{"]
@@ -875,6 +965,13 @@ def format_baseline(report: MetricsReport, palette_allowlist: list[str]) -> str:
     lines.append('  "palette_allowlist": [')
     for idx, entry in enumerate(palette_allowlist):
         comma = "," if idx + 1 < len(palette_allowlist) else ""
+        lines.append(f"    {json.dumps(entry)}{comma}")
+    lines.append("  ],")
+
+    lines.append('  "base_control_allowlist": [')
+    base_list = list(base_control_allowlist)
+    for idx, entry in enumerate(base_list):
+        comma = "," if idx + 1 < len(base_list) else ""
         lines.append(f"    {json.dumps(entry)}{comma}")
     lines.append("  ],")
 
@@ -914,7 +1011,8 @@ def check_metrics(
     resolved_baseline = baseline_path if baseline_path is not None else root / DEFAULT_BASELINE_REL
     baseline = load_baseline(resolved_baseline)
     allowlist = list(baseline["palette_allowlist"])
-    report = collect_metrics(root, allowlist)
+    base_allowlist = list(baseline["base_control_allowlist"])
+    report = collect_metrics(root, allowlist, base_allowlist)
     failures, improvements = compare_with_baseline(report, baseline)
     return report, failures, improvements, allowlist
 
@@ -946,11 +1044,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.print_baseline:
             if baseline_path.is_file() and baseline_path.stat().st_size > 0:
-                allowlist = list(load_baseline(baseline_path)["palette_allowlist"])
+                loaded = load_baseline(baseline_path)
+                allowlist = list(loaded["palette_allowlist"])
+                base_allowlist = list(loaded["base_control_allowlist"])
             else:
                 allowlist = list(DEFAULT_PALETTE_ALLOWLIST)
-            report = collect_metrics(root, allowlist)
-            sys.stdout.write(format_baseline(report, allowlist))
+                base_allowlist = list(DEFAULT_BASE_CONTROL_ALLOWLIST)
+            report = collect_metrics(root, allowlist, base_allowlist)
+            sys.stdout.write(format_baseline(report, allowlist, base_allowlist))
             return 0
 
         report, failures, improvements, _allowlist = check_metrics(root, baseline_path)

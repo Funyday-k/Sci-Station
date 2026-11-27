@@ -2,15 +2,19 @@
   "palette_allowlist": [
     "tokens.css"
   ],
+  "base_control_allowlist": [
+    "components.css"
+  ],
   "metrics": {
     "hex_colors_outside_palette": 0,
-    "important_lines": 24,
+    "important_lines": 13,
     "distinct_media_widths": 24,
     "distinct_font_sizes": 7,
     "distinct_border_radii": 4,
     "distinct_numeric_z_indices": 0,
     "duplicate_custom_properties": 0,
-    "html_sinks": 48
+    "html_sinks": 48,
+    "base_control_rules_outside_components": 0
   },
   "html_entry_points": {
     "api.html": {"stylesheets": 1, "scripts": 0},

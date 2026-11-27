@@ -25,18 +25,6 @@ body {
   font-weight:600;
 }
 
-[hidden] {
-  display:none!important;
-}
-
-button,a,input,select,textarea {
-  font:inherit;
-}
-
-button,select,input,textarea {
-  color:var(--fg);
-}
-
 a {
   color:var(--accent);
   text-decoration:none;
@@ -46,41 +34,23 @@ a:hover {
   text-decoration:underline;
 }
 
-button,select,input,textarea {
+:is(.toolbar, .reader-footer, .inspector-pane, #handoffDialog) :is(button, select, input, textarea) {
+  color:var(--fg);
   background:var(--bg-surface);
   border:1px solid var(--border-control);
   border-radius: var(--radius-sm);
 }
 
-button,select {
-  cursor:pointer;
-}
-
-button {
+:is(.toolbar, .reader-footer, .inspector-pane, #handoffDialog) button {
   min-height:32px;
   padding:5px 10px;
   border-color:var(--border-button);
   font-weight:400;
 }
 
-:is(input, textarea)::placeholder {
-  color:var(--ink-muted);
-  opacity:1;
-}
-
-button:disabled {
-  opacity:.42;
-  cursor:default;
-}
-
-button:hover:enabled {
+:is(.toolbar, .reader-footer, .inspector-pane, #handoffDialog) button:hover:enabled {
   background:var(--desk);
   border-color:var(--border-control);
-}
-
-a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible {
-  outline:2px solid var(--accent);
-  outline-offset:2px;
 }
 
 .primary {
@@ -452,7 +422,7 @@ h3 {
   margin-top:9px;
 }
 
-textarea {
+:is(.inspector-pane, #handoffDialog) textarea {
   display:block;
   width:100%;
   padding:9px;
@@ -519,7 +489,7 @@ label:not(.page-input) {
   color:var(--accent);
 }
 
-dialog {
+#handoffDialog {
   width:min(440px,92vw);
   background:var(--bg-surface);
   color:var(--fg);
@@ -529,9 +499,6 @@ dialog {
   box-shadow: var(--shadow-lg);
 }
 
-dialog::backdrop {
-  background: var(--scrim);
-}
 
 dialog select {
   width:100%;

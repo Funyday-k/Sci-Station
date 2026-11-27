@@ -13,7 +13,6 @@
   color: var(--ink-primary);
   box-shadow: var(--shadow-md);
 }
-.children-panel[hidden] { display: none !important; }
 .children-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 15px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
 .children-panel-heading-copy { min-width: 0; }
 .children-panel-heading h2 { margin: 0; font-size: var(--text-md); font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }

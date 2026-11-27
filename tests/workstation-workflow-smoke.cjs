@@ -392,7 +392,7 @@ async function review(app, ui, fixture, outputs) {
   const reviews = () => app.request(projectPath + "/reviews?meeting=" + meeting.id);
   const notes = () => app.request(projectPath + "/notes");
   await ui.click("#meeting-actions-toggle");
-  await ui.click(".science-meeting-open", "科研记录");
+  await ui.click('[data-testid="science-meeting-open"]', "科研记录");
   await eventually(async () => ui.evaluate(([selector, values]) => {
     const control = document.querySelector(selector);
     return control && values.every(value => [...control.options].some(option => option.value === value));
@@ -528,7 +528,7 @@ async function reviewProjectSources(app, ui, fixture) {
   assert.equal(pending.evidence.length, 2);
   await ui.navigate(app.origin + "/studio?project=" + project.id + "&session=" + room.id);
   await ui.click("#meeting-actions-toggle");
-  await ui.click(".science-meeting-open", "科研记录");
+  await ui.click('[data-testid="science-meeting-open"]', "科研记录");
   await ui.visible(dialog + " a", "打开 Wiki 原文");
   await ui.visible(dialog + " a", "打开项目材料原文");
   await ui.click(dialog + " button", "确认写入");
