@@ -15,6 +15,14 @@ test("mode transfers are isolated by destination, workspace and project",()=>{
     assert.equal(readModeTransfer("single",{...draft,projectId:""}),null);
     assert.equal(readModeTransfer("single",{...draft,workspace:"other-root"}),null);
     assert.throws(()=>writeModeTransfer("single",{...draft,materials:[{id:"../file",name:"Other file"}]}));
+    const preset={...draft,sourceSessionId:"",materials:[],context:"α".repeat(6500),roundtablePreset:{mode:"forum",seats:3}};
+    writeModeTransfer("roundtable",preset);
+    assert.deepEqual(readModeTransfer("roundtable",preset),preset);
+    assert.throws(()=>writeModeTransfer("single",preset));
+    assert.throws(()=>writeModeTransfer("roundtable",{...preset,materials:draft.materials}));
+    assert.throws(()=>writeModeTransfer("roundtable",{...preset,sourceSessionId:draft.sourceSessionId}));
+    assert.throws(()=>writeModeTransfer("roundtable",{...preset,roundtablePreset:{mode:"forum",seats:1}}));
+    assert.throws(()=>writeModeTransfer("roundtable",{...preset,roundtablePreset:undefined}));
     assert.ok(scopeOwnsModeSource({project_id:"physics",project:"/fixture/physics"},"physics"));
     assert.ok(!scopeOwnsModeSource({project:"/fixture/other"},""));
     clearModeTransfer("single");

@@ -185,7 +185,7 @@
       unsaved:() => [...saved.values()].some(record => record.text !== record.confirmed)};
   }
 
-  function mount({req,tell,form,skillForRun,currentResource,consumeResource,setResource}) {
+  function mount({req,tell,form,scopeAvailable,skillForRun,currentResource,consumeResource,setResource}) {
     const $ = id => document.getElementById(id);
     let project = null, records = [], existingTasks=[], preview = null, selected = [], generation = 0;
     let enabledModules=null;
@@ -229,7 +229,8 @@
       const archived=Boolean(visibleRoom?.lab_thread?.archived_at);
       const running=visibleRoom?.status==="running";
       const writable=Boolean(!active || (visibleRoom && !archived && ["ready","partial"].includes(visibleRoom.status)));
-      const enabled=window.SciStationModules.isEnabled(enabledModules,"ai-lab");
+      const scopeReady=scopeAvailable();
+      const enabled=scopeReady && window.SciStationModules.isEnabled(enabledModules,"ai-lab");
       $("lab-empty").hidden=Boolean(active);
       $("lab-opening-chat").hidden=!active || Boolean(visibleRoom);
       $("lab-thread-actions").hidden=!visibleRoom;
@@ -245,7 +246,7 @@
       $("lab-resume").disabled=!enabled || Boolean($("lab-resume").dataset.labBusy);
       $("lab-attach").disabled=!writable || !enabled || !project || project.global;
       $("lab-tools").disabled=!writable || !enabled;
-      $("lab-draft-trigger").disabled=!writable || !project;
+      $("lab-draft-trigger").disabled=!writable || !project || !scopeReady;
       $("lab-model-trigger").hidden=Boolean(active);
       $("lab-readonly").hidden=Boolean(!active || !visibleRoom || writable || running);
       $("lab-readonly").textContent=archived ? text("此对话已归档。","This chat is archived.") : text("此对话已结束。","This conversation is closed.");
@@ -543,19 +544,19 @@
       const draft=questionDraft.capture(), expectedDraft=$("question").value;
       if(!data.question) throw Error(text("请先填写研究问题。","Enter a research question."));
       if(data.seats!==1) throw Error(text("无法载入单人对话模板。","Could not load the chat template."));
-      if(!project) throw Error("请选择科研项目或全局会话。");
+      if(!project || !scopeAvailable()) throw Error("请选择科研项目或全局会话。");
       if(!window.SciStationModules.isEnabled(enabledModules,"ai-lab")) throw Error("AI 实验室模块未启用或仍在加载。");
       if(!$("lab-model").value) await loadModels();
-      if(token!==generation || active) return;
+      if(token!==generation || active || !scopeAvailable()) return;
       const member={model:$("lab-model").value,effort:$("lab-effort").value};
       if(!member.model || !member.effort) throw Error("请先读取模型目录并选择模型。");
       const scope=project.global?"global":"";
       const skill=await skillForRun(pid);
-      if(token!==generation || active) return;
+      if(token!==generation || active || !scopeAvailable()) return;
       const topic=window.ScienceLabHandoff.compose({...data,scope,projectId:pid,skill});
       const used=selected.slice(), inherited=importedMaterials.slice();
       const materials=await prepare(data.workflow,pid,data.question);
-      if(!materials || token!==generation || active) return;
+      if(!materials || token!==generation || active || !scopeAvailable()) return;
       // Creating the session records a recoverable ID before the first model call.
       const room=await createSingle(req,project,topic,member,data.mode,materials);
       questionDraft.consume(draft, expectedDraft);
@@ -674,11 +675,11 @@
       const room=visibleRoom, id=room?.id, pid=project?.id, token=generation;
       const draft=replyDraft.capture(), expectedDraft=$("lab-reply").value;
       const note=expectedDraft.trim(), resource=currentResource();
-      if(!ownsRun(room,project) || room.lab_thread?.archived_at || id!==active || !["ready","partial"].includes(room.status)) throw Error("请先打开可继续的会话。");
+      if(!scopeAvailable() || !ownsRun(room,project) || room.lab_thread?.archived_at || id!==active || !["ready","partial"].includes(room.status)) throw Error("请先打开可继续的会话。");
       if(!note) throw Error("请填写追问。");
       const used=selected.slice(), inherited=importedMaterials.slice();
       const materials=await prepare("",pid,note,room);
-      if(!materials || token!==generation || id!==active) return;
+      if(!materials || token!==generation || id!==active || !scopeAvailable()) return;
       const message=window.ScienceLabHandoff.composeFollowup({question:note,projectId:pid,scope:project.global?"global":"",resource});
       const next=await advance(req,room,message,materials);
       replyDraft.consume(draft, expectedDraft);
@@ -797,7 +798,7 @@
       $("question").dispatchEvent(new Event("input",{bubbles:true}));
       importedMaterials=materials;displaySelected();
     }
-    return {selectProject,importTransfer,activeRoom:()=>visibleRoom,
+    return {selectProject,updateComposer,importTransfer,activeRoom:()=>visibleRoom,
       saveDraft:()=>active ? replyDraft.save() : questionDraft.save(),
       prepareHandoff:pid=>selected.length || importedMaterials.length ? prepare("",pid) : Promise.resolve([]),
       hasDraft:()=>Boolean(selected.length || importedMaterials.length || questionDraft.unsaved() || replyDraft.unsaved())};

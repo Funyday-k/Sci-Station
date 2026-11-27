@@ -22,11 +22,17 @@
     if(!res.ok)throw Error(x?.error?.message || x?.error || "操作失败（"+res.status+"）");
     return x;
   }
+  async function checkedMaterials({sourceSessionId,projectId,materials}) {
+    const checked=await req("/api/studio/materials/transfer-check","POST",{
+      sessionId:sourceSessionId,projectId,materialIds:materials.map(item=>item.id)
+    });
+    return checked.materials;
+  }
   const projectContext = window.SciLabContext.mount({req, tell, resetResource,settingsChanged:(id,rev)=>connections.updateRevision(id,rev)});
   const connections=window.SciLabConnectors.mount({req,tell,resetResource,settingsChanged:(id,config)=>projectContext.updateRevision(id,config.revision),
     showPreview(value){preview=value;$("resource-text").value=value.text;$("preview-panel").hidden=false;}
   });
-  const runs = window.SciLabRun.mount({req, tell, skillForRun:projectContext.resolve,
+  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, skillForRun:projectContext.resolve,
     currentResource:()=>source, consumeResource:used=>{if(source===used) markSource(null);},setResource:markSource,
     form:()=>{
       const template=selectedTemplate ? presets.find(p=>p.id===selectedTemplate) : defaultTemplate();
@@ -35,11 +41,11 @@
     }});
   const defaultTemplate=()=>presets.find(p=>p.id==="research-question");
   function form(){
-    return {title:$("title").value.trim(),mode:current?.mode || "review",seats:1,prompt:$("prompt").value.trim()};
+    return {title:$("title").value.trim(),mode:current?.mode || "review",seats:current?.seats || 1,prompt:$("prompt").value.trim()};
   }
   function snapshot(p){return JSON.stringify([p.title,p.mode,p.seats,p.prompt]);}
   function dirtyTemplate(){return original!==null && snapshot(form())!==original;}
-  function canLeave(){return !dirtyTemplate()||confirm("放弃尚未保存的模板更改？");}
+  function canLeave(){return !dirtyTemplate()||confirm(text("放弃尚未保存的模板更改？","Discard unsaved template changes?"));}
   let handingOff = false;
   window.addEventListener("beforeunload", event => {
     if (!handingOff && (dirtyTemplate() || source || runs.hasDraft())) {
@@ -56,6 +62,7 @@
   }
   const builtinTitles={"paper-reading":["精读论文","Read a paper"],"research-question":["研究问答","Research question"],
     "related-work":["比较相关工作","Compare related work"],"gap-planning":["查找研究空缺","Identify research gaps"]};
+  const modeNames={review:["方案评审","Review"],forum:["多方权衡","Forum"],prioritize:["优先级排序","Prioritize"]};
   function renderPresets(){
     const nav=$("presets");nav.replaceChildren();
     for(const p of presets.filter(p=>p.seats===1)){
@@ -65,11 +72,51 @@
       b.onclick=()=>{if(canLeave()){selectedTemplate=p.id;select(p);renderPresets();nav.querySelector(`[data-id="${CSS.escape(p.id)}"]`)?.focus();}};
       nav.append(b);
     }
+    renderRoundtableTemplates();
+  }
+  function renderRoundtableTemplates() {
+    const legacy=presets.filter(p=>p.seats>1);
+    $("lab-legacy-templates").hidden=!legacy.length;
+    $("lab-legacy-template-list").replaceChildren(...legacy.map(template=>{
+      const entry=document.createElement("details"), title=document.createElement("summary"), metadata=document.createElement("p"),
+        prompt=document.createElement("blockquote"), actions=document.createElement("div"),
+        open=document.createElement("button"), edit=document.createElement("button");
+      entry.className="lab-disclosure";title.textContent=template.title;prompt.textContent=template.prompt;
+      const mode=modeNames[template.mode] ? text(...modeNames[template.mode]) : template.mode;
+      const description=text(`${template.seats} 个席位 · ${mode}`,`${template.seats} seats · ${mode}`);
+      metadata.className="hint";metadata.textContent=description;
+      actions.className="actions";
+      edit.type="button";edit.textContent=template.builtin ? text("作为个人模板编辑","Edit as a personal template") : text("编辑模板","Edit template");
+      edit.onclick=()=>{if(canLeave()) editTemplate(template);};
+      open.type="button";open.textContent=text("复核后转到圆桌","Review and open Roundtable");
+      open.onclick=async()=>{
+        open.disabled=true;
+        const owner=projectId();
+        try{
+          const {workspace}=await req("/api/health");
+          if(owner!==projectId() || !scopeAvailable() || !$("lab-tools-dialog").open || !open.isConnected) return;
+          const context=[template.title,template.prompt].join("\n\n");
+          const roundtablePreset={mode:template.mode,seats:template.seats};
+          $("lab-tools-dialog").close();
+          showTransfer("out",{workspace,projectId:owner,sourceSessionId:"",context,materials:[],roundtablePreset},description);
+        } catch(error){tell(error.message);}
+        finally{open.disabled=false;}
+      };
+      actions.append(open,edit);entry.append(title,metadata,prompt,actions);return entry;
+    }));
+  }
+  function editTemplate(template) {
+    select(template);
+    $("lab-template-settings").open=true;
+    $("lab-template-editor").open=true;
+    $("title").focus();
   }
   async function refresh(selected){
     presets=await req(api+"presets");
-    if (selected || !presets.some(p=>p.id===selectedTemplate)) selectedTemplate=selected || null;
-    renderPresets();select(presets.find(p=>p.id===selectedTemplate) || defaultTemplate() || null);
+    const saved=presets.find(p=>p.id===selected);
+    if(saved?.seats===1) selectedTemplate=saved.id;
+    if(!presets.some(p=>p.id===selectedTemplate && p.seats===1)) selectedTemplate=null;
+    renderPresets();select(saved || presets.find(p=>p.id===selectedTemplate) || defaultTemplate() || null);
   }
   async function save(fork){
     const x=form();if(!x.title||!x.prompt)throw Error("请填写模板名称和工作指引。");
@@ -80,6 +127,18 @@
   }
   let previousScope=null;
   const projectId=()=>$("project").value==="@global" ? "" : $("project").value;
+  function scopeAvailable(){
+    const id=$("project").value;
+    return id==="@global" || projects.some(p=>p.id===id);
+  }
+  const unavailableScope=()=>text("此项目不可用。请选择一个项目或全局会话。","This project is unavailable. Select a project or Global.");
+  function showScopeStatus(){
+    const available=scopeAvailable(), status=$("status");
+    $("project").setAttribute("aria-invalid",String(!available));
+    if(!available) status.textContent=unavailableScope();
+    else if(status.dataset.scopeUnavailable) status.textContent="";
+    status.dataset.scopeUnavailable=available ? "" : "1";
+  }
   const transferQuery=id=>new URLSearchParams(id ? {project:id} : {scope:"global"});
   function projectSelection(commit = false){
     const id=$("project").value,p=projects.find(v=>v.id===id);
@@ -102,19 +161,19 @@
     const url=new URL(location.href);
     if(p)url.searchParams.set("project",id);else url.searchParams.delete("project");
     if(id==="@global")url.searchParams.set("scope","global");else url.searchParams.delete("scope");
-    if (commit) window.SciStationNav.commitURL(url,"push");
-    connections.select(id,p?.name || "");
-    projectContext.select(id, p?.name || "").catch(e => tell(e.message));
+    const available=scopeAvailable();
+    if (commit && available) window.SciStationNav.commitURL(url,"push");
+    connections.select(available ? id : "",p?.name || "");
+    projectContext.select(available ? id : "", p?.name || "").catch(e => tell(e.message));
     runs.selectProject(id==="@global"?{id:"",global:true}:p, sessions).catch(e => tell(e.message));
+    showScopeStatus();
     void showPendingTransfer();
   }
   window.addEventListener("popstate",()=>{
     const route=new URL(location.href).searchParams;
     const project=route.get("project") || "@global";
-    if (project==="@global" || projects.some(p=>p.id===project) || !project) {
-      $("project").value=project;
-      projectSelection();
-    }
+    scopeOptions(project);
+    projectSelection();
   });
   function resetResource(){preview=null;$("resource-text").value="";$("preview-panel").hidden=true;}
   function markSource(v){
@@ -129,19 +188,13 @@
   async function showPendingTransfer() {
     const ticket=++transferSequence;
     pendingTransfer=null;$("lab-transfer-notice").hidden=true;
-    if(new URL(location.href).searchParams.get("fromRoundtable")!=="1") return;
+    if(!scopeAvailable() || new URL(location.href).searchParams.get("fromRoundtable")!=="1") return;
     const owner=projectId();
     try {
       const {workspace}=await req("/api/health");
       const input=handoff.readModeTransfer("single",{workspace,projectId:owner});
       if(!input || ticket!==transferSequence) return;
-      if(input.sourceSessionId){
-        const room=await req("/api/studio/sessions/"+encodeURIComponent(input.sourceSessionId));
-        if(!handoff.scopeOwnsModeSource(room,owner)) return;
-        const authorized=new Map((room.materials || []).map(item=>[item.id,item]));
-        if(input.materials.some(item=>!authorized.has(item.id))) return;
-        input.materials=input.materials.map(({id})=>({id,name:authorized.get(id).name}));
-      }
+      if(input.sourceSessionId || input.materials.length) input.materials=await checkedMaterials(input);
       if(ticket!==transferSequence) return;
       pendingTransfer=input;$("lab-transfer-notice").hidden=false;
     } catch(error) {if(ticket===transferSequence) tell(error.message);}
@@ -155,7 +208,9 @@
     const incoming=direction==="in";
     $("lab-transfer-heading").textContent=incoming ? text("复核圆桌上下文","Review Roundtable context") : text("转到圆桌","Switch to Roundtable");
     $("lab-transfer-apply").textContent=incoming ? text("加入新对话草稿","Add to new chat draft") : text("在圆桌中复核","Review in Roundtable");
-    $("lab-transfer-context").value=input.context;
+    const context=$("lab-transfer-context");
+    context.maxLength=input.roundtablePreset ? handoff.roundtablePresetContextLimit : handoff.modeContextLimit;
+    context.value=input.context;
     const sourceLink=$("lab-transfer-source");
     sourceLink.hidden=!input.sourceSessionId;
     if(input.sourceSessionId) sourceLink.href=sourceUrl(incoming?"/studio":"/lab",incoming?"session":"run",input.projectId,input.sourceSessionId);
@@ -175,17 +230,22 @@
   action("lab-transfer-apply",async()=>{
     if(!transferReview) return;
     const {direction,input}=transferReview;
-    if(input.projectId!==projectId()) throw Error(text("当前范围已改变。","The active scope changed."));
+    if(!scopeAvailable() || input.projectId!==projectId()) throw Error(text("当前范围已改变。","The active scope changed."));
     const context=$("lab-transfer-context").value.trim();
     if(!context) throw Error(text("请填写要带入的内容。","Enter the context to carry over."));
     if(direction==="in"){
+      const materials=input.sourceSessionId || input.materials.length ? await checkedMaterials(input) : input.materials;
+      if(!scopeAvailable() || input.projectId!==projectId()) return;
       const provenance=input.sourceSessionId ? "\n\nSource Roundtable: "+sourceUrl("/studio","session",input.projectId,input.sourceSessionId) : "";
-      await runs.importTransfer(input,context+provenance);
+      await runs.importTransfer({...input,materials},context+provenance);
       finishPendingTransfer();$("lab-transfer-dialog").close();$("question").focus();
       return;
     }
+    if(!canLeave()) return;
     await runs.saveDraft();
-    handoff.writeModeTransfer("roundtable",{...input,context});
+    const materials=input.sourceSessionId || input.materials.length ? await checkedMaterials(input) : input.materials;
+    if(!scopeAvailable() || input.projectId!==projectId()) return;
+    handoff.writeModeTransfer("roundtable",{...input,context,materials});
     const query=transferQuery(input.projectId);query.set("fromLab","1");
     handingOff=true;location.assign("/studio?"+query);
   });
@@ -199,8 +259,9 @@
       try {
         const {workspace}=await req("/api/health");
         if(room && !handoff.scopeOwnsModeSource(room,owner)) return;
-        const materials=room ? room.materials || [] : await runs.prepareHandoff(owner);
-        if(owner!==projectId() || room?.id!==runs.activeRoom()?.id) return;
+        const pending=await runs.prepareHandoff(owner);
+        if(!scopeAvailable() || owner!==projectId() || room?.id!==runs.activeRoom()?.id) return;
+        const materials=[...new Map([...pending,...(room?.materials || [])].map(item=>[item.id,item])).values()];
         const parts=[];
         if(room?.topic) parts.push(window.SciLabRun.messageText(room.topic,true));
         const done=room?.rounds?.flatMap(round=>round.turns || []).filter(turn=>turn.status==="done" && turn.text).at(-1);
@@ -208,15 +269,17 @@
         if(draft) parts.push(room ? text("当前草稿","Current draft")+"\n"+draft : draft);
         if(source) parts.push(source.excerpt);
         const raw=parts.filter(Boolean).join("\n\n") || text("请讨论这些研究材料。","Discuss these research sources.");
-        const context=Array.from(raw).slice(0,2400).join("");
+        const context=Array.from(raw).slice(0,handoff.modeContextLimit).join("");
         const limit=raw!==context || materials.length>12 ? text("预览包含上下文的前 2,400 字和最多 12 份材料。原对话保留完整记录。",
           "The preview contains the first 2,400 characters and up to 12 attachments. The original chat keeps the full record.") : "";
-        showTransfer("out",{workspace,projectId:owner,sourceSessionId:room?.id || "",context,
-          materials:materials.slice(0,12).map(({id,name})=>({id,name}))},limit);
+        const input={workspace,projectId:owner,sourceSessionId:room?.id || "",context,materials:materials.slice(0,12)};
+        if(input.sourceSessionId || input.materials.length) input.materials=await checkedMaterials(input);
+        if(!scopeAvailable() || owner!==projectId() || room?.id!==runs.activeRoom()?.id) return;
+        showTransfer("out",input,limit);
       } catch(error) {tell(error.message);}
     })();
   });
-  action("new",()=>{if(canLeave()){select(null);$("title").focus();}});
+  action("new",()=>{if(canLeave()) editTemplate(null);});
   action("save",()=>save(false));action("fork",()=>save(true));
   action("delete",async()=>{if(!current||current.builtin||!confirm("删除个人模板「"+current.title+"」？"))return;
     await req(api+"presets/"+encodeURIComponent(current.id),"DELETE",{revision:current.revision});await refresh();tell("模板已删除。");});
@@ -307,20 +370,31 @@
     $(trigger).addEventListener("click",()=>{$("status").textContent="";$(dialog).showModal();});
   }
   for (const close of document.querySelectorAll("[data-lab-close]")) close.addEventListener("click",()=>close.closest("dialog").close());
-  function scopeOptions() {
-    const previous=$("project").value;
-    $("project").replaceChildren(new Option(text("全局会话","Global"),"@global"),...projects.map(p=>new Option(p.name,p.id)));
-    $("project").value=projects.some(p=>p.id===previous) ? previous : "@global";
+  function scopeOptions(id=$("project").value || "@global") {
+    const scope=$("project"), prior=scope.selectedOptions[0];
+    scope.replaceChildren(new Option(text("全局会话","Global"),"@global"),...projects.map(p=>new Option(p.name,p.id)));
+    if(id!=="@global" && !projects.some(p=>p.id===id)) {
+      const name=prior?.value===id ? prior.dataset.projectName || prior.textContent : id;
+      const unavailable=new Option(text("项目不可用 · ","Project unavailable · ")+name,id);
+      unavailable.dataset.projectName=name;unavailable.disabled=true;scope.append(unavailable);
+    }
+    scope.value=id;
   }
-  window.addEventListener("sci:language",()=>{scopeOptions();renderPresets();});
+  window.addEventListener("sci:language",()=>{scopeOptions();showScopeStatus();renderPresets();});
   $("endpoint").oninput=projectContext.clearResource;
   $("resources").onchange=resetResource;
-  (async()=>{
+  const initialScope=(async()=>{
     const [list,rooms]=await Promise.all([req("/api/research/projects"),req("/api/studio/sessions"),refresh()]);
     projects=list;sessions=Array.isArray(rooms)?rooms:rooms.sessions||[];
-    scopeOptions();
-    const initial=new URLSearchParams(location.search).get("project");
-    if(projects.some(p=>p.id===initial))$("project").value=initial;
+    scopeOptions(new URLSearchParams(location.search).get("project") || "@global");
     projectSelection();
   })().catch(e=>tell(e.message));
+  let scopeRefresh=0;
+  window.addEventListener("sci:projects-changed",()=>{
+    const ticket=++scopeRefresh;
+    initialScope.then(()=>req("/api/research/projects")).then(list=>{
+      if(ticket!==scopeRefresh) return;
+      projects=list;scopeOptions();showScopeStatus();runs.updateComposer();
+    }).catch(error=>{if(ticket===scopeRefresh) tell(error.message);});
+  });
 })();

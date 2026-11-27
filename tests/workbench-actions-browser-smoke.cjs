@@ -21,6 +21,10 @@ async function main(binary) {
     app = await launch(binary, port, path.join(base, "root"), env, "serve");
 
     const project = await app.request("/api/research/projects", "POST", {name: "Action fixture"}, 201);
+    const archived = await app.request("/api/research/projects", "POST", {name: "Archived fixture"}, 201);
+    const preset = await app.request("/api/research/lab/presets", "POST", {
+      title: "Personal Roundtable fixture", prompt: "Check the original research assumptions.", mode: "forum", seats: 3,
+    }, 201);
     const notesPath = "/api/research/projects/" + project.id + "/notes";
     await app.request(notesPath, "POST", {title: "Capture", body: "# Capture", aliases: ["Solar capture"]}, 201);
     await app.request(notesPath, "POST", {title: "Evaporation", body: "# Evaporation"}, 201);
@@ -127,6 +131,26 @@ async function main(binary) {
     assert.ok(await modal.locator("#note-body").isVisible());
     await page.locator("#modal-close").click();
 
+    const archivedReply = await fetch(app.origin + "/api/research/projects/" + archived.id + "?revision=" + archived.revision, {
+      method: "DELETE", headers: {Origin: app.origin, "X-Sci-Station": "1", "Content-Type": "application/json"}, body: "{}",
+    });
+    assert.ok(archivedReply.ok, await archivedReply.text());
+    for (const invalid of ["unknown-fixture", archived.id]) {
+      const writes = [];
+      const observe = request => {
+        const url = new URL(request.url());
+        if (url.pathname === "/api/research/lab/draft" || url.pathname === "/api/studio/sessions" && request.method() !== "GET") writes.push(url.href);
+      };
+      page.on("request", observe);
+      await page.goto(app.origin + "/lab?project=" + invalid);
+      await page.locator('#project[aria-invalid="true"]').waitFor();
+      assert.equal(await page.locator("#project").inputValue(), invalid);
+      assert.equal(await page.locator("#question").isDisabled(), true);
+      assert.equal(await page.locator("#lab-start").isDisabled(), true);
+      assert.deepEqual(writes, []);
+      page.off("request", observe);
+    }
+
     await page.goto(app.origin + "/lab?project=" + encodeURIComponent(project.id));
     const start = page.locator("#lab-start");
     const question = page.locator("#question");
@@ -144,9 +168,26 @@ async function main(binary) {
     await page.locator("#lab-template-settings > summary").click();
     await page.locator('#presets [data-id="research-question"]').waitFor();
     assert.equal(await page.locator('#presets [data-id="independent-check"]').count(), 0);
+    await page.locator("#lab-legacy-templates > summary").click();
+    await page.locator("#lab-legacy-template-list summary").filter({hasText: "双席独立复核"}).waitFor();
+    const savedPreset = page.locator("#lab-legacy-template-list details").filter({hasText: preset.title});
+    await savedPreset.locator("summary").click();
+    assert.match(await savedPreset.innerText(), /3 个席位.*多方权衡/);
+    await savedPreset.getByRole("button", {name: "编辑模板"}).click();
+    await page.locator("#prompt").fill("Updated research assumptions.");
+    await page.locator("#save").click();
+    await page.getByText("个人模板已保存。").waitFor();
+    const updatedPresets = await app.request("/api/research/lab/presets");
+    const updatedPreset = updatedPresets.find(item => item.id === preset.id);
+    assert.deepEqual([updatedPreset.mode, updatedPreset.seats, updatedPreset.prompt], ["forum", 3, "Updated research assumptions."]);
     await page.locator("#lab-tools-dialog footer [data-lab-close]").click();
     const original = "Review the fixture research question.";
     await question.fill(original);
+    await question.evaluate(input => input.setSelectionRange(3, 10));
+    await app.request("/api/research/projects/" + project.id, "PATCH", {name: "Renamed fixture", revision: project.revision});
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent("sci:projects-changed")));
+    await page.locator("#project option").filter({hasText: "Renamed fixture"}).waitFor({state: "attached"});
+    assert.deepEqual(await question.evaluate(input => [input.value, input.selectionStart, input.selectionEnd, document.activeElement === input]), [original, 3, 10, true]);
     await start.click();
     await page.locator(".lab-turn-user").filter({hasText:original}).waitFor();
     await page.locator(".lab-turn-answer").filter({hasText:"excerpt"}).waitFor();
