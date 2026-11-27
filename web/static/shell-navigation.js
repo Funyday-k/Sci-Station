@@ -8,6 +8,7 @@
     const options={method,cache:"no-store",headers:{Accept:"application/json"}};
     if(body!==undefined){options.headers["Content-Type"]="application/json";options.headers["X-Roundtable"]="1";options.body=JSON.stringify(body);}
     const response=await fetch(path,options);
+    if(response.status===204)return null;
     const result=await response.json();
     if(!response.ok){const error=Error(result.error?.message || result.error || text("本机服务未能完成操作","Local service request failed"));error.status=response.status;throw error;}
     return result;
@@ -56,7 +57,9 @@
         const slots=[...prior,...movable.filter(id=>!prior.includes(id))];
         let index=0;
         save({[field]:slots.map(id=>movable.includes(id)?ids[index++]:id)}).then(()=>{
-          const restored=Array.from(container.querySelectorAll("a")).find(a=>a.dataset[key]===id);
+          const live=document.getElementById(container.id) || container;
+          if(live.dataset.moduleProject!==container.dataset.moduleProject)return;
+          const restored=Array.from(live.querySelectorAll("a")).find(a=>a.dataset[key]===id);
           if(restored) {const menu=restored.closest("details");if(menu)menu.open=true;restored.focus();}
         }).catch(()=>{});
       };
@@ -111,7 +114,7 @@
       updateProjectNav();
       if(compactTreeOpen){
         const sidebar=document.getElementById("workspace-sidebar");
-        (sidebar.querySelector('[aria-current="page"]') || sidebar.querySelector("a"))?.focus();
+        (sidebar.querySelector('[data-project][aria-current]') || sidebar.querySelector('[aria-current="page"]') || sidebar.querySelector("a"))?.focus();
       }
     };
     document.getElementById("workspace-nav-close").onclick=()=>dismissProjectNav(true);
@@ -125,33 +128,13 @@
       dismissProjectNav(true);
     });
     document.addEventListener("click",event=>{
-      if(!event.target.closest("#workspace-sidebar,#workspace-nav-toggle"))dismissProjectNav();
+      if(!event.target.closest("#workspace-sidebar,#workspace-nav-toggle,#project-row-menu,#project-editor"))dismissProjectNav();
       else if(event.target.closest("#presets button,[data-settings-page]"))dismissProjectNav();
     });
     narrow.addEventListener("change",()=>{compactTreeOpen=false;updateProjectNav();});
     updateProjectNav();
   }
-  function decorateProject(modules,tree) {
-    if(!state)return;
-    updateProjectNav();
-    const tabs=Array.from(modules.querySelectorAll("a[data-tab-key]"));
-    const sorted=[...tabs.filter(a=>a.dataset.tabKey==="overview"),...ordered(tabs.filter(a=>a.dataset.tabKey!=="overview"),state.tabOrder,a=>a.dataset.tabKey)];
-    modules.replaceChildren(...sorted);
-    decorateStrip(modules,sorted.map(a=>a.dataset.tabKey),"tabs","tabKey");
-    const rows=ordered(Array.from(tree.querySelectorAll("a[data-project]")),state.pinnedProjects,a=>a.dataset.project);
-    tree.replaceChildren(...rows.map(link=>{
-      const row=document.createElement("div"),pin=document.createElement("button"),id=link.dataset.project;
-      row.className="shell-project-row";
-      pin.type="button";pin.innerHTML=window.RoundtableIcons?.icon("pin") || "";
-      pin.setAttribute("aria-pressed",String(state.pinnedProjects.includes(id)));
-      pin.setAttribute("aria-label",(state.pinnedProjects.includes(id)?text("取消固定 ","Unpin "):text("固定 ","Pin "))+link.textContent);
-      pin.title=pin.getAttribute("aria-label");
-      pin.onclick=()=>save({projectId:id,pinned:!state.pinnedProjects.includes(id)}).catch(()=>{});
-      row.append(link,pin);
-      if(link.hasAttribute("aria-current") && !modules.hidden)row.append(modules);
-      return row;
-    }));
-  }
-  window.SciShellLayout={request,ready,save,top,decorateTop,decorateProject,dismissProjectNav,get state(){return state;}};
+  function decorateTabs(container,ids){decorateStrip(container,ids,"tabs","tabKey");}
+  window.SciShellLayout={request,ready,save,top,ordered,decorateTop,decorateTabs,dismissProjectNav,get state(){return state;}};
   for(const q of [narrow,matchMedia("(min-width:1400px)"),matchMedia("(min-width:760px)")])q.addEventListener("change",()=>window.SciResearch?.updateNav());
 })();

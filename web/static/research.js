@@ -12,30 +12,7 @@
   const navigation = window.SciStationNav;
   const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
   const local = (key, zh, en) => window.SciStationI18n?.message?.(key) ?? text(zh, en);
-  const names = {
-    get overview() { return local("routeOverview", "概览", "Overview"); },
-    get projects() { return local("routeProjects", "项目", "Projects"); },
-    get papers() { return local("routePapers", "论文", "Papers"); },
-    get notes() { return local("routeWiki", "Wiki", "Wiki"); },
-    get tasks() { return local("routeTasks", "任务", "Tasks"); },
-    get materials() { return local("routeMaterials", "材料", "Materials"); },
-    get graph() { return local("routeGraph", "图谱", "Graph"); },
-    get meetings() { return local("roundtable", "圆桌", "Roundtable"); },
-    get code() { return text("代码", "Code"); },
-    get data() { return text("数据", "Data"); },
-    get experiments() { return text("实验", "Experiments"); },
-    get writing() { return text("写作", "Writing"); },
-    get theory() { return text("理论笔记", "Theory Notes"); },
-  };
-  const glyphs = {
-    overview: "dashboard",
-    papers: "book",
-    notes: "file",
-    tasks: "agenda",
-    materials: "folder",
-    graph: "subagent",
-    meetings: "chat"
-  };
+  const names = navigation.projectNames;
   const icon = key => window.RoundtableIcons.icon(key);
   const statusLabel = {
     get unread() { return text("未读", "Unread"); },
@@ -47,11 +24,7 @@
     get cancelled() { return text("已取消", "Cancelled"); },
     get done() { return text("已完成", "Completed"); },
   };
-  function projectBadge(project) {
-    const color = /^#[0-9a-f]{6}$/i.test(project.colorHex) ? project.colorHex : "#4F7CAC";
-    const symbol = /^[a-z0-9][a-z0-9.-]{0,79}$/i.test(project.iconName || "") ? project.iconName : "folder";
-    return '<span class="project-badge" style="--project-color:' + color + '"><img alt="" src="/api/workspace/symbol/' + enc(symbol) + '"></span>';
-  }
+  const projectBadge = navigation.projectBadge;
   const state = {
     projects: [],
     project: null,
@@ -357,32 +330,7 @@
 
   function updateNav() {
     navigation.update();
-    const modules = $("project-modules");
-    // Keep the mounted secondary navigation alive when rebuilding project rows.
-    if(modules.parentElement && modules.parentElement!==$("sidebar"))$("sidebar").append(modules);
-    modules.hidden = !state.project;
-    const tabs = Object.entries(names).filter(([key])=>key!=="projects").map(([key,name])=>
-      ({key,name,href:viewURL(key),local:true}));
-    tabs.push(
-      {key:"calendar",name:local("routeCalendar", "日历", "Calendar"),href:viewURL("calendar")},
-      {key:"recommendations",name:text("文献推荐", "Recommendations"),href:toolsPage("discover")},
-      {key:"lab",name:text("AI 工作流", "AI Workflows"),href:navigation.route("/lab",{project:state.project?.id})}
-    );
-    const pins = state.modules?.pinnedOrder || [];
-    const rank = tab => {
-      const index = pins.indexOf(navigation.viewModules[tab.key]);
-      return index < 0 ? pins.length : index;
-    };
-    modules.innerHTML = state.project ? tabs.filter(tab=>navigation.enabled(state.modules,navigation.viewModules[tab.key]))
-      .sort((left,right)=>rank(left)-rank(right)).map(tab=>'<a data-tab-key="'+esc(tab.key)+'" href="' + esc(tab.href) + '"' +
-        (tab.local ? ' data-view="'+tab.key+'"' : "") +
-        (tab.key===(state.view==="tasks" && state.calendar?"calendar":state.view) ? ' aria-current="page"' : '') +
-        '>' + icon(glyphs[tab.key] || ({calendar:"agenda",recommendations:"search",lab:"model",code:"file",data:"folder",experiments:"tools",writing:"file",theory:"book"}[tab.key]) || "file") + '<span>' + esc(tab.name) + '</span></a>').join("") : "";
-    $("projectnav").innerHTML = state.projects.map(p => '<a class="project-item ' + (p.id === state.project?.id ?
-        'active' : '') + '"' + (p.id === state.project?.id ? ' aria-current="true"' : '') + ' data-project="' + esc(p.id) + '" href="' + esc(viewURL("overview", p.id)) +
-      '">' + projectBadge(p) + '<span>' + esc(p
-      .name) + '</span></a>').join("");
-    window.SciShellLayout?.decorateProject(modules, $("projectnav"));
+    window.SciProjectSidebar?.setProjects(state.projects, state.project?.id, state.modules);
     const title = state.view === "overview" && !state.project ? local("routeHome", "首页", "Home") : names[state.view];
     $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">' + esc(names.projects) + '</a><span>/</span><a href="' +
       esc(viewURL("overview")) + '">' + esc(state.project.name) + '</a><span>/</span>' : "") + '<strong>' + esc(title) + '</strong>';
@@ -922,6 +870,7 @@
   };
   window.SciResearch = E;
   function handleWorkspaceCommand(key) {
+    if(key==="archivedProjects"){E.formAction("archived-projects");return true;}
     if(key==="find") {search();return true;}
     if(!["newProject","importIdentifier","importPDF"].includes(key) || !E.formAction) return false;
     const field = key === "importPDF" ? "pdf" : "identifiers";
@@ -1077,7 +1026,6 @@
   document.addEventListener("input", filterResults);
   document.addEventListener("compositionend", filterResults);
   $("search-open").onclick = search;
-  $("new-project").onclick = () => E.formAction("new-project");
   $("modal-close").onclick = close;
   document.addEventListener("keydown", ev => {
     if (ev.key === "Escape") {

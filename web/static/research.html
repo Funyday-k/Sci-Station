@@ -22,15 +22,8 @@
 {{define "tools"}}<button id="search-open" class="search-open"><span data-icon="search"></span><span data-l10n-text="searchWorkspace">搜索工作区</span><kbd>⌘ K</kbd></button>{{end}}
 {{define "content"}}
 <div id="shell">
-    <aside id="sidebar" aria-label="科研项目" data-l10n-aria-label="projectNavigation">
-
-      <div class="project-heading"><strong data-l10n-text="myProjects">我的项目</strong><button type="button" id="new-project" class="icon" aria-label="新建项目"
-          title="新建项目" data-l10n-title="toolbarNewProject" data-l10n-aria-label="toolbarNewProject"><svg class="ui-icon" data-ui-icon="plus" aria-hidden="true"></svg></button></div>
-      <nav id="projectnav" aria-label="科研项目" data-l10n-aria-label="projectNavigation"></nav>
-    </aside>
     <div id="workarea">
 
-      <nav id="project-modules" aria-label="项目功能" hidden data-l10n-aria-label="projectModules"></nav>
       <main id="main" class="workspace-page" tabindex="-1" aria-busy="true">
         <p class="initial" data-l10n-text="loadingWorkspace">正在读取工作区…</p>
       </main>

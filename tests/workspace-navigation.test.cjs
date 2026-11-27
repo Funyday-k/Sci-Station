@@ -16,6 +16,9 @@ test("every desktop surface mounts the same workspace navigation", () => {
   assert.match(sidebar, /<nav data-workspace-nav /);
   assert.match(sidebar, /<nav data-workspace-settings /);
   assert.match(sidebar, /id="workspace-context"/);
+  assert.match(sidebar, /id="workspace-projects"/);
+  assert.match(sidebar, /id="projectnav"/);
+  assert.doesNotMatch(read("research.html"), /id="projectnav"|id="project-modules"/);
   assert.match(shell, /id="workspace-nav-toggle"[^>]+aria-controls="workspace-sidebar"/);
   assert.match(shell, /id="rail-close"/);
   assert.doesNotMatch(shell, /id="shell-inspect"/);
@@ -116,12 +119,10 @@ test("global library deep links stay global; project drilldown restricts the sam
   assert.equal(ui.state.project,null);
   assert.match(elements.main.innerHTML,/Solar paper/);
   assert.match(elements.main.innerHTML,/Lensing paper/);
-  assert.equal(elements["project-modules"].hidden,true);
   assert.equal(calls.some(c=>c.url.includes("/projects/B")),false);
   await ui.load("A","papers");
   assert.match(elements.main.innerHTML,/Solar paper/);
   assert.doesNotMatch(elements.main.innerHTML,/Lensing paper/);
-  assert.equal(elements["project-modules"].hidden,false);
   await ui.load("missing","tasks");
   assert.equal(ui.state.project,null);
   assert.equal(ui.state.view,"projects");

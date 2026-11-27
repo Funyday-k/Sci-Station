@@ -116,86 +116,6 @@
       choices.join("") + '</div></fieldset>';
   }
 
-  const projectColors=["#A7C7E7","#B8E0D2","#F4B6C2","#CDB4DB","#F6D186","#BFC7D5"];
-  const projectSymbols=["folder","atom","sparkles","books.vertical","chart.xyaxis.line","brain"];
-  function appearanceFields(p) {
-    const colors=projectColors.map(c=>'<button type="button" data-tint="'+c+'" aria-label="'+c+'" style="--project-color:'+c+'"></button>').join("");
-    const symbols=projectSymbols.map(n=>'<button type="button" data-symbol="'+n+'" aria-label="'+n+'"><img alt="" src="/api/workspace/symbol/'+n+'"></button>').join("");
-    return '<div class="project-design">'+field(copy("项目颜色","Project color"),input("colorHex",p?.colorHex || "#4F7CAC",'pattern="#[0-9a-fA-F]{6}" maxlength="7" required'))+
-      '<div class="project-swatches">'+colors+'</div>'+field(copy("图标名称","Symbol name"),input("iconName",p?.iconName || "folder",'maxlength="80" required'))+
-      '<div class="project-symbols">'+symbols+'</div><div data-project-preview></div></div>';
-  }
-  function projectForm(edit = false) {
-    const p = edit ? state.project : null;
-    dialog(edit ? local("projectsEditInfo", "项目设置", "Edit Project Info") : local("toolbarNewProject", "新建科研项目", "New Project"), '<form>' + field(copy("项目名称", "Project name"), input("name", p?.name,
-      'required maxlength="160" autofocus placeholder="例如：太阳暗物质"')) + field(copy("项目简介", "Project description"), area("description", p?.description,
-      'maxlength="12000" placeholder="研究问题、目标或记录范围"')) + appearanceFields(p) + (p ? "" :
-      '<div class="field"><span>' + esc(copy("项目文件夹", "Project folder")) + '</span><p id="chosen-folder" class="form-help">' + esc(copy("默认使用 Sci-Station 管理的本地目录。", "Sci-Station manages the local folder by default.")) + '</p><button id="pick-folder" type="button" class="button">' + esc(copy("选择已有文件夹…", "Choose an existing folder…")) + '</button><input name="path" type="hidden"></div>'
-      ) + (p && !p.managedDirectory ? '<p>' +
-        button(copy("重新授权文件夹…", "Grant folder access again…"), "grant-directory", {id:p.id+":"+p.revision}) +
-        (p.directoryGrant ? button(copy("撤销文件夹授权", "Revoke folder access"), "revoke-directory", {id:p.id+":"+p.revision}) : "") + '</p>' : "") + (p?.path ? '<p class="form-help">圆桌项目文件夹<br>' + esc(p.path) + '</p>' : "") + button(local("projectsArchivedTitle", "已归档项目", "Archived Projects"),
-      "archived-projects", {
-        kind: "bare"
-      }) + formFooter(edit ? copy("保存更改", "Save changes") : copy("创建项目", "Create project"), p ? "project:" + p.id : "") + '</form>');
-    const preview=$("dialog-content").querySelector("[data-project-preview]");
-    if(preview){
-      const form=preview.closest("form"), redraw=()=>{
-        const colorHex=form.elements.colorHex.value, iconName=form.elements.iconName.value;
-        preview.innerHTML=E.projectBadge({colorHex,iconName})+'<strong>'+esc(form.elements.name.value || copy("项目预览","Project preview"))+'</strong>';
-        for(const btn of form.querySelectorAll("[data-tint],[data-symbol]")){
-          btn.setAttribute("aria-pressed",String(btn.dataset.tint===colorHex || btn.dataset.symbol===iconName));
-        }
-      };
-      form.addEventListener("input",redraw);
-      form.querySelector(".project-design").addEventListener("click",event=>{
-        const b=event.target.closest("[data-tint],[data-symbol]");
-        if(!b)return;
-        if(b.dataset.tint)form.elements.colorHex.value=b.dataset.tint;
-        if(b.dataset.symbol)form.elements.iconName.value=b.dataset.symbol;
-        redraw();
-      });
-      redraw();
-    }
-    if (!p) $("pick-folder").onclick = async () => {
-      const el = $("pick-folder");
-      el.disabled = true;
-      try {
-        const result = await request("/api/studio/pick-project", {
-          method: "POST",
-          body: {}
-        });
-        if (result.path) {
-          el.parentElement.querySelector("[name=path]").value = result.path;
-          $("chosen-folder").textContent = result.path;
-        }
-      } catch (err) {
-        $("chosen-folder").textContent = err.message;
-      } finally {
-        el.disabled = false;
-      }
-    };
-    bindForm(async (f, token) => {
-      const body = {
-        name: value(f, "name"),
-        description: value(f, "description"),
-        colorHex: value(f,"colorHex"), iconName: value(f,"iconName")
-      };
-      if (!p && value(f, "path")) body.path = value(f, "path");
-      const item = await request(p ? "projects/" + enc(p.id) : "projects", {
-        method: p ? "PATCH" : "POST",
-        body: p ? {
-          ...body,
-          revision: p.revision
-        } : body
-      });
-      done(token);
-      await load(item.id, "overview", {
-        historyMode: "push"
-      });
-      toast(p ? "项目已更新" : "项目已创建");
-    });
-  }
-
   function paperImportError(error) {
     if (error.code === "invalid_paper_identifier") return copy(
       "请输入文章网址、PDF 链接、DOI、arXiv 编号或 INSPIRE 链接。",
@@ -1417,7 +1337,7 @@
   E.libraryForm = {field, input, area, select, bindForm, formFooter, done, value};
   E.formAction = async function(action, id) {
     if (action === "close-dialog") return close();
-    if (action === "new-project" || action === "edit-project") return projectForm(action === "edit-project");
+    if (action === "new-project" || action === "edit-project") return window.SciProjectEditor.open(action === "edit-project" ? (id || state.project?.id) : null);
     if (action === "new-paper") return paperForm(null, {focus: id === "pdf" ? "pdf" : "identifiers"});
     if (action === "edit-paper") {
       const p = state.papers.find(p => p.id === id);
@@ -1433,20 +1353,6 @@
       await request("projects/"+enc(pid)+"/trash", {method:"POST",body:{revision:Number(rev)}});
       await archivedProjects();
       toast("项目已移至回收站");
-      return;
-    }
-    if (action === "grant-directory" || action === "revoke-directory") {
-      const [pid, rev] = id.split(":");
-      let path="";
-      if (action==="grant-directory") {
-        const selected=await request("/api/studio/pick-project",{method:"POST",body:{}});
-        if(!selected.path)return;
-        path=selected.path;
-      }
-      await request("projects/"+enc(pid)+"/directory",{method:"POST",body:{revision:Number(rev),path}});
-      close();
-      await load(pid,"overview");
-      toast(path?"文件夹授权已更新":"文件夹授权已撤销");
       return;
     }
     if (action === "restore-project") {
@@ -1472,7 +1378,7 @@
       return;
     }
     if (!state.project) {
-      projectForm();
+      window.SciProjectEditor.open(null);
       return;
     }
     const look = (arr) => arr.find(x => x.id === id);

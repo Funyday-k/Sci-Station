@@ -13,6 +13,26 @@
   }
   const label = (zh, en) => globalThis.SciStationI18n?.text(zh, en) ?? zh;
   const local = (key, zh, en) => globalThis.SciStationI18n?.message?.(key) ?? label(zh, en);
+  const projectNames = {
+    get overview() { return local("routeOverview", "概览", "Overview"); },
+    get projects() { return local("routeProjects", "项目", "Projects"); },
+    get papers() { return local("routePapers", "论文", "Papers"); },
+    get notes() { return local("routeWiki", "Wiki", "Wiki"); },
+    get tasks() { return local("routeTasks", "任务", "Tasks"); },
+    get materials() { return local("routeMaterials", "材料", "Materials"); },
+    get graph() { return local("routeGraph", "图谱", "Graph"); },
+    get meetings() { return local("roundtable", "圆桌", "Roundtable"); },
+    get code() { return label("代码", "Code"); },
+    get data() { return label("数据", "Data"); },
+    get experiments() { return label("实验", "Experiments"); },
+    get writing() { return label("写作", "Writing"); },
+    get theory() { return label("理论笔记", "Theory Notes"); },
+  };
+  function projectBadge(project) {
+    const color = /^#[0-9a-f]{6}$/i.test(project.colorHex) ? project.colorHex : "#4F7CAC";
+    const symbol = /^[a-z0-9][a-z0-9.-]{0,79}$/i.test(project.iconName || "") ? project.iconName : "folder";
+    return '<span class="project-badge" style="--project-color:' + color + '"><img alt="" src="/api/workspace/symbol/' + encodeURIComponent(symbol) + '"></span>';
+  }
   const icons = {home:"dashboard",projects:"folder",library:"book",calendar:"agenda",lab:"model",roundtable:"chat",settings:"settings"};
   function destinationLink({key,name,href,active}) {
     const link=document.createElement("a"), caption=document.createElement("span");
@@ -122,6 +142,7 @@
       if(locationLabel)locationLabel.textContent=links.find(link=>link.active)?.name || "Sci-Station";
     }
     window.SciShellLayout?.decorateTop(nav);
+    window.SciProjectSidebar?.render();
     window.SciContextRail?.update();
     remember();
   }
@@ -184,7 +205,7 @@
     if (event.shiftKey) return "";
     return {n:"newProject",o:"openWorkspace",f:"find",s:"save",i:"inspector",",":"settings","[":"back","]":"forward",backspace:"deletePaper",delete:"deletePaper"}[key] || "";
   }
-  const nav=Object.freeze({route,research,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
+  const nav=Object.freeze({projectNames,projectBadge,route,research,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
   if (typeof module !== "undefined" && module.exports) module.exports = nav;
   if (typeof window !== "undefined") {
     window.SciStationNav=nav;

@@ -68,21 +68,21 @@ nav[data-workspace-nav] a[aria-current="page"], nav[data-workspace-settings] a[a
 #workspace-context .shell-project-row > a { flex: 1 1 0; }
 #workspace-context .shell-project-row > button { flex: none; min-width: 26px; min-height: 30px; opacity: 0; color: var(--workspace-muted); }
 #workspace-context .shell-project-row:hover > button, #workspace-context .shell-project-row:focus-within > button, #workspace-context .shell-project-row > button[aria-pressed="true"] { opacity: 1; }
-#workspace-context #project-modules {
+#workspace-context .project-modules {
   position: static; display: flex; flex: 0 0 calc(100% - 20px); flex-direction: column; align-items: stretch;
   width: auto; min-width: 0; margin: 3px 0 8px 20px; padding: 0 0 0 9px; gap: 2px;
   border: 0; border-left: 1px solid var(--workspace-line); background: transparent; overflow: visible;
 }
-#workspace-context #project-modules[hidden] { display: none; }
-#workspace-context #project-modules a {
+#workspace-context .project-modules[hidden] { display: none; }
+#workspace-context .project-modules a {
   display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; margin: 0;
   padding: 5px 8px; border: 0; border-radius: 6px; color: var(--workspace-muted);
   font-size: var(--workspace-text-small); font-weight: 400;
 }
-#workspace-context #project-modules a[aria-current="page"] {
+#workspace-context .project-modules a[aria-current="page"] {
   color: var(--workspace-ink); background: color-mix(in srgb,var(--workspace-ink) 8%,transparent); font-weight: 500;
 }
-#workspace-context #project-modules .ui-icon { width: 16px; height: 16px; }
+#workspace-context .project-modules .ui-icon { width: 16px; height: 16px; }
 #workspace-context h2, #workspace-context .history-label h2 {
   margin: 0 8px 8px; padding: 0; font-size: var(--workspace-text-small); font-weight: 500; color: var(--workspace-muted);
 }
