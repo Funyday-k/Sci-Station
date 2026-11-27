@@ -29,9 +29,11 @@
 
   --palette-diff-add-bg: #e7f6ec;
   --palette-diff-add-ink: #115830;
+  --palette-diff-add-gutter: #147a3b;
   --palette-diff-add-border: #8fd1a8;
   --palette-diff-remove-bg: #fdebec;
   --palette-diff-remove-ink: #8f1d2c;
+  --palette-diff-remove-gutter: #be123c;
   --palette-diff-remove-border: #e7a0aa;
   --palette-diff-hunk-bg: #eef2ff;
   --palette-diff-hunk-ink: #3730a3;
@@ -79,9 +81,11 @@
 
   --diff-add-bg: var(--palette-diff-add-bg);
   --diff-add-ink: var(--palette-diff-add-ink);
+  --diff-add-gutter: var(--palette-diff-add-gutter);
   --diff-add-border: var(--palette-diff-add-border);
   --diff-remove-bg: var(--palette-diff-remove-bg);
   --diff-remove-ink: var(--palette-diff-remove-ink);
+  --diff-remove-gutter: var(--palette-diff-remove-gutter);
   --diff-remove-border: var(--palette-diff-remove-border);
   --diff-hunk-bg: var(--palette-diff-hunk-bg);
   --diff-hunk-ink: var(--palette-diff-hunk-ink);
@@ -165,9 +169,11 @@
 
   --palette-diff-add-bg: #173423;
   --palette-diff-add-ink: #9bf0ba;
+  --palette-diff-add-gutter: #86efac;
   --palette-diff-add-border: #2c6d48;
   --palette-diff-remove-bg: #3b1c22;
   --palette-diff-remove-ink: #ffb3be;
+  --palette-diff-remove-gutter: #fda4af;
   --palette-diff-remove-border: #7a313e;
   --palette-diff-hunk-bg: #262944;
   --palette-diff-hunk-ink: #c7d2fe;

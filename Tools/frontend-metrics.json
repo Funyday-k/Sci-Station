@@ -20,7 +20,7 @@
     "science-tools.html": {"stylesheets": 3, "scripts": 7},
     "session-transcript.html": {"stylesheets": 1, "scripts": 0},
     "studio.html": {"stylesheets": 27, "scripts": 35},
-    "workspace-shell.html": {"stylesheets": 6, "scripts": 11},
+    "workspace-shell.html": {"stylesheets": 5, "scripts": 11},
     "workspace-welcome.html": {"stylesheets": 1, "scripts": 1}
   }
 }

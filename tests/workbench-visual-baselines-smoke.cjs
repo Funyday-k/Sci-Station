@@ -3,7 +3,7 @@
 // Capture visual baseline screenshots for key Sci-Station workbench screens.
 //
 // Usage:
-//   node tests/workbench-visual-baselines-smoke.cjs <sci-station-binary> [output-dir]
+//   node tests/workbench-visual-baselines-smoke.cjs <sci-station-binary> [output-dir] [pre-redesign-binary]
 //
 // Output defaults to .tmp/visual-baselines (or SCI_STATION_VISUAL_BASELINES_SCREENSHOTS /
 // SCI_STATION_SMOKE_SCREENSHOTS / SCI_STATION_SHELL_SCREENSHOTS / SCI_STATION_LAB_SCREENSHOTS).
@@ -470,11 +470,54 @@ async function waitForScreenReady(session, step, fixtures) {
   );
 }
 
-async function runVisualBaselines(binary, outputArg) {
-  if (!binary) {
-    throw new Error("Usage: node tests/workbench-visual-baselines-smoke.cjs <sci-station-binary> [output-dir]");
-  }
-  const outputDir = resolveOutputDir(outputArg);
+function isReaderComparisonView(step) {
+  return step.screen === "reader" && step.width === 1380 && step.height === 900 &&
+    step.locale === "zh" && step.theme === "light" && step.colorTheme === "iris";
+}
+
+async function measureReader(session) {
+  await eventually(() => session.evaluate(() => {
+    const image = document.querySelector("#pageImage");
+    return !document.querySelector("#pageSurface").hidden && image.complete && image.naturalWidth > 0;
+  }), "first synthetic PDF page rendered", 15000);
+
+  return session.evaluate(async () => {
+    await document.fonts.ready;
+    const viewport = document.querySelector("#viewport").getBoundingClientRect();
+    return {
+      configuration: {
+        window: [innerWidth, innerHeight],
+        paper: document.querySelector("#title").textContent.trim(),
+        page: document.querySelector("#pageNo").value,
+        locale: document.documentElement.lang,
+        theme: document.documentElement.dataset.theme,
+        colorTheme: document.documentElement.dataset.colorTheme,
+        textSize: document.documentElement.dataset.textSize,
+        navigationExpanded: document.querySelector("#workspace-nav-toggle").getAttribute("aria-expanded"),
+        inspectorOpen: !document.querySelector("#reader-inspector").hidden,
+        contextRailOpen: !document.querySelector("#context-rail").hidden,
+      },
+      viewportTop: viewport.top,
+      viewportBottom: viewport.bottom,
+      visibleViewportHeight: Math.min(innerHeight, viewport.bottom) - Math.max(0, viewport.top),
+      headerRowHeight: document.querySelector(".reader-header")?.getBoundingClientRect().height || 0,
+    };
+  });
+}
+
+function assertReaderHeightGain(before, after) {
+  assert.deepEqual(after.configuration, before.configuration, "Reader comparison settings changed");
+  assert.deepEqual(before.configuration.window, [1380, 900]);
+  assert.equal(before.configuration.inspectorOpen, false);
+  assert.equal(before.configuration.contextRailOpen, false);
+  assert.ok(before.headerRowHeight > 0 && before.visibleViewportHeight > 0,
+    "Historical Reader must show its header row and PDF viewport");
+  const gain = after.visibleViewportHeight - before.visibleViewportHeight;
+  assert.ok(gain >= before.headerRowHeight,
+    `Reader gained ${gain}px (${before.visibleViewportHeight} → ${after.visibleViewportHeight}px); expected at least one historical header row (${before.headerRowHeight}px)`);
+}
+
+async function captureVisualBaselines(binary, outputDir, plan, compareReader) {
   await mkdir(outputDir, {recursive: true});
 
   const base = await mkdtemp(path.join(await realpath(tmpdir()), "sci-visual-baselines-"));
@@ -500,7 +543,7 @@ async function runVisualBaselines(binary, outputArg) {
     // Bootstrap origin so localStorage can be configured before navigating through the matrix.
     await session.goto(host.origin + "/research");
 
-    const plan = buildCapturePlan();
+    let readerGeometry;
     let currentViewport = "";
     let currentLocale = "";
     let currentTheme = "";
@@ -588,6 +631,8 @@ async function runVisualBaselines(binary, outputArg) {
             ["danger on surface", ratio(danger, surfaceBg), 4.5],
             ["warning on surface", ratio(warning, surfaceBg), 4.5],
             ["success on surface", ratio(success, surfaceBg), 4.5],
+            ["diff addition gutter", ratio(token("--diff-add-gutter"), token("--diff-add-bg")), 4.5],
+            ["diff removal gutter", ratio(token("--diff-remove-gutter"), token("--diff-remove-bg")), 4.5],
           ];
           if (actionLink) {
             checks.push(["rendered .action-link", ratio(getComputedStyle(actionLink).color, surfaceBg), 4.5]);
@@ -601,6 +646,7 @@ async function runVisualBaselines(binary, outputArg) {
           `WCAG AA contrast failed for ${step.locale}/${step.theme}/${step.colorTheme}: ${JSON.stringify(failed)}`
         );
       }
+      if (compareReader && isReaderComparisonView(step)) readerGeometry = await measureReader(session);
 
       const dest = path.join(outputDir, step.file);
       await session.screenshot(dest);
@@ -625,13 +671,14 @@ async function runVisualBaselines(binary, outputArg) {
           viewports: VIEWPORTS,
           screens: SCREENS,
           entries: manifestEntries,
+          readerGeometry,
         },
         null,
         2
       ) + "\n"
     );
 
-    if (process.env.SCI_STATION_SMOKE_SCREENSHOT) {
+    if (process.env.SCI_STATION_SMOKE_SCREENSHOT && plan.some(step => step.screen === "home")) {
       const homeDefault = path.join(outputDir, "home__1380x900__zh__light__iris.png");
       const target = path.resolve(process.env.SCI_STATION_SMOKE_SCREENSHOT);
       if (target !== homeDefault) {
@@ -644,7 +691,7 @@ async function runVisualBaselines(binary, outputArg) {
     console.log(
       `Captured ${manifestEntries.length} visual baseline screenshots in ${outputDir} (0 page errors).`
     );
-    return {outputDir, manifestPath, count: manifestEntries.length};
+    return {outputDir, manifestPath, count: manifestEntries.length, readerGeometry};
   } finally {
     await session?.close();
     await host?.close();
@@ -653,7 +700,28 @@ async function runVisualBaselines(binary, outputArg) {
   }
 }
 
+async function runVisualBaselines(binary, outputArg, referenceBinary) {
+  if (!binary) throw new Error(
+    "Usage: node tests/workbench-visual-baselines-smoke.cjs <sci-station-binary> [output-dir] [pre-redesign-binary]"
+  );
+  const outputDir = resolveOutputDir(outputArg);
+  const plan = buildCapturePlan();
+  if (!referenceBinary) return captureVisualBaselines(binary, outputDir, plan, false);
+
+  const reference = await captureVisualBaselines(referenceBinary, path.join(outputDir, "reader-before"),
+    plan.filter(isReaderComparisonView), true);
+  const candidate = await captureVisualBaselines(binary, outputDir, plan, true);
+  const before = reference.readerGeometry;
+  const after = candidate.readerGeometry;
+  const comparison = {before, after, gain: after.visibleViewportHeight - before.visibleViewportHeight};
+  await writeFile(path.join(outputDir, "reader-geometry.json"), JSON.stringify(comparison, null, 2) + "\n");
+  console.log("Reader geometry (CSS pixels)", JSON.stringify(comparison));
+  assertReaderHeightGain(before, after);
+  return candidate;
+}
+
 module.exports = {
+  assertReaderHeightGain,
   VIEWPORTS,
   LOCALES,
   THEMES,
@@ -666,7 +734,7 @@ module.exports = {
 };
 
 if (require.main === module) {
-  runVisualBaselines(process.argv[2], process.argv[3]).catch(error => {
+  runVisualBaselines(process.argv[2], process.argv[3], process.argv[4]).catch(error => {
     console.error(error);
     process.exitCode = 1;
   });

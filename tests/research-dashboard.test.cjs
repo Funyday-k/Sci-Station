@@ -178,6 +178,17 @@ test("Home and Overview render durable draft counts and keep widget order, size 
   assert.doesNotMatch(restrictedOverview, /data-quick-add-module="core_papers"/);
   assert.match(restrictedOverview, /data-quick-add-module="current_tasks"/);
 
+  const activityLayout = ["project_status", "research_questions", "project_brief", "core_papers",
+    "current_tasks", "materials", "knowledge_gaps", "recent_activity", "project_documents", "workflow"]
+    .map(id => ({id, visible: id === "recent_activity"}));
+  const activityWorkspace = {id: "activity-only"};
+  storage.set("sci-station.dashboard.v1:" + app.scopeKey(activityWorkspace.id, alpha.id), JSON.stringify(activityLayout));
+  const emptyActivity = browser().markup({...state, dashboardData: {...state.dashboardData,
+    workspace: activityWorkspace, reviews: []}}, ui, now);
+  assert.deepEqual(widgets(emptyActivity), [["recent_activity", "medium"]]);
+  assert.match(emptyActivity, /data-compact-empty="true".*暂无近期活动/s);
+  assert.doesNotMatch(emptyActivity, /data-quick-add-module/);
+
   const failure = async path => {
     if (path.startsWith("dashboard/projects") || path.endsWith("reviews")) throw new Error("Unavailable fixture");
     return request(path);

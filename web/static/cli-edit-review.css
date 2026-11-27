@@ -44,14 +44,14 @@
   background: var(--diff-add-bg);
 }
 .diff-add .diff-gutter {
-  color: var(--workspace-diff-add-gutter);
+  color: var(--diff-add-gutter);
 }
 .diff-remove {
   color: var(--diff-remove-ink);
   background: var(--diff-remove-bg);
 }
 .diff-remove .diff-gutter {
-  color: var(--workspace-diff-remove-gutter);
+  color: var(--diff-remove-gutter);
 }
 .diff-header {
   color: var(--ink-muted);

@@ -103,9 +103,11 @@ test("starting and reviewing from the meeting requires one explicit click per re
   assert.equal(diffPre.children.length, 2);
   assert.equal(diffPre.children[0].className, "diff-line diff-remove");
   assert.equal(diffPre.children[0].children[0].textContent, "−");
+  assert.deepEqual(diffPre.children[0].children[0].attributes, {role: "img", "aria-label": "删除行"});
   assert.equal(diffPre.children[0].children[1].textContent, "old");
   assert.equal(diffPre.children[1].className, "diff-line diff-add");
   assert.equal(diffPre.children[1].children[0].textContent, "+");
+  assert.deepEqual(diffPre.children[1].children[0].attributes, {role: "img", "aria-label": "新增行"});
   assert.equal(diffPre.children[1].children[1].textContent, "new <section>");
   assert.equal(get("decision-actions").hidden, false);
   const obsolete=get("accept");
@@ -129,6 +131,36 @@ test("diff parser distinguishes headers, additions, removals and context with +/
     {kind: "remove", gutter: "−", text: "before"},
     {kind: "add", gutter: "+", text: "after <script>alert(1)</script>"},
   ]);
+});
+
+test("hunk content resembling file headers keeps its change markers", () => {
+  const source = "--- a/one\n+++ b/one\n@@ -1,2 +1,2 @@ section\n keep\n--- before\n+++ after\n" +
+    "\\ No newline at end of file\n--- a/two\n+++ b/two\n@@ -0,0 +1 @@\n+++ another";
+  const lines = helpers.parseDiffLines(source);
+  assert.deepEqual(lines.map(line => line.kind), [
+    "header", "header", "header", "context", "remove", "add", "header", "header", "header", "header", "add"
+  ]);
+  assert.equal(lines[4].text, "-- before");
+  assert.equal(lines[5].text, "++ after");
+});
+
+test("large and multi-file proposals keep the complete diff with bounded highlighted rows", async () => {
+  const block = Array.from({length: 200}, (_, n) => "+short line " + n).join("\n");
+  const large = "+head\r\n" + "-line\r\n+line\r\n".repeat(5000) + "+<tail>";
+  const proposal = copy(run);
+  proposal.pending.changes = [block, block, large].map((diff, i) => ({path: i + ".md", kind: "update", diff}));
+  const {ui, get} = mount(() => ({providers, run: proposal}));
+  ui.setSession(session, "Project");
+  await tick();
+  const [first, second, third] = get("changes").children.map(section => section.children[1]);
+  assert.equal(first.children.length, 200);
+  for (const [plain, expected] of [[second, block], [third, large]]) {
+    assert.equal(plain.children.length, 0);
+    assert.equal(plain.textContent, expected);
+    assert.match(plain.attributes["aria-description"], /加号.*减号/);
+    assert.equal(plain.tabIndex, 0);
+  }
+  assert.equal(get("accept").disabled, false);
 });
 
 test("unified dialog footer places tertiary actions leading and primary Approve trailing", () => {
