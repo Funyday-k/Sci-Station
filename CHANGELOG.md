@@ -58,6 +58,11 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Fixed
 
+- Roundtable uses the research project ID and its current directory for project operations. Project and paper records adopt version 1 on a normal save.
+- Honor the AI module setting for both chat modes, show pending and failed research loads, and defer optional rendering and assistant scripts until first use.
+- Resume a known MinerU submission after restarting the app. Check an uncertain batch before explicitly starting another one.
+- Restrict the environment used for local model CLI diagnostics.
+
 - Keep the retry time for model-requested MCP reads stable during a cooldown, and honor a longer wait requested by the service.
 - Download the local OpenAPI contract for research projects, module settings, shared literature, AI Lab and Roundtable. New AI Lab sessions use `projectId`; existing clients can still create them with `project_id`.
 - Project paper imports and linked Wiki saves can complete concurrently. Project removal keeps the shared paper. Shared deletion previews affected records, and Wiki pages with a missing paper retain their source and remain editable.
