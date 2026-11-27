@@ -57,14 +57,40 @@
     return route(mode === "single" ? "/lab" : "/studio", project ? {project} : {scope:"global"});
   }
 
+  let checkedProject;
+  let projectAllowsChat = false;
+  let modeGeneration = 0;
   function updateModes(url) {
     const modes = document.getElementById("workspace-ai-modes");
     if (!modes) return;
     const current = aiMode(url);
     modes.hidden = !current;
+    if (!current) return;
+    const project = url.searchParams.get("project") || "";
+    if (project && project !== checkedProject) {
+      const generation = ++modeGeneration;
+      checkedProject = project;
+      projectAllowsChat = false;
+      window.SciStationModules.load(project).then(config => {
+        if (generation !== modeGeneration) return;
+        projectAllowsChat = enabled(config, "ai-lab");
+        updateModes(currentURL());
+      }).catch(() => {
+        if (generation === modeGeneration) checkedProject = undefined;
+      });
+    }
+    const chatAvailable = project ? projectAllowsChat : globalModules && enabled(globalModules, "ai-lab");
     for (const item of modes.querySelectorAll("[data-ai-mode]")) {
       const mode = item.dataset.aiMode;
-      item.href = modeURL(mode, url.searchParams.get("project"));
+      if (mode === "single" && !chatAvailable) {
+        item.removeAttribute("href");
+        item.setAttribute("aria-disabled", "true");
+        item.title = label("当前范围未启用单人对话", "Chat is unavailable in this scope");
+      } else {
+        item.removeAttribute("aria-disabled");
+        item.removeAttribute("title");
+        item.href = modeURL(mode, project);
+      }
       if (mode === current) item.setAttribute("aria-current", "page");
       else item.removeAttribute("aria-current");
     }
@@ -213,7 +239,7 @@
       const link = event.target.closest("[data-ai-mode]");
       if (!link || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       event.preventDefault();
-      if (link.dataset.aiMode === aiMode(currentURL())) return;
+      if (!link.hasAttribute("href") || link.dataset.aiMode === aiMode(currentURL())) return;
       const change = new CustomEvent("sci:change-ai-mode", {
         cancelable:true, detail:{mode:link.dataset.aiMode, href:link.getAttribute("href")}
       });
@@ -267,7 +293,15 @@
     window.addEventListener("hashchange",update);
     window.addEventListener("sci:language",update);
     window.addEventListener("sci:modules",event=>{
-      if (!event.detail.project) {globalModules=event.detail.state;update();}
+      if (!event.detail.project) {
+        globalModules=event.detail.state;
+        checkedProject=undefined;
+        modeGeneration++;
+      } else if (event.detail.project === checkedProject) {
+        modeGeneration++;
+        projectAllowsChat=enabled(event.detail.state, "ai-lab");
+      }
+      update();
     });
   }
 })();

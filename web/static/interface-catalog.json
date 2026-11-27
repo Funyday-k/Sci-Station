@@ -86,6 +86,7 @@
   "chooseFolder": {"en": "Choose Folder", "zh-Hans": "选择文件夹"},
   "chooseSaveLocation": {"en": "Choose where to save the file.", "zh-Hans": "选择文件的保存位置"},
   "roundtable": {"en": "Roundtable", "zh-Hans": "圆桌"},
+  "openAIWorkspace": {"en": "Open AI", "zh-Hans": "打开 AI"},
   "openRoundtable": {"en": "Open Roundtable", "zh-Hans": "打开圆桌"},
   "pluginMarketplace": {"en": "Plugin Marketplace", "zh-Hans": "插件市场"},
   "libraryMenu": {"en": "Papers", "zh-Hans": "文献"},
