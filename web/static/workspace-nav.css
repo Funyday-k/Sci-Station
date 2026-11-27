@@ -50,6 +50,9 @@ nav[data-workspace-nav] a[aria-current="page"], nav[data-workspace-settings] a[a
   outline: 2px solid var(--workspace-accent); outline-offset: -2px;
 }
 .workspace-sidebar-footer { flex: none; padding: 10px; border-top: 1px solid var(--workspace-line); }
+.workspace-sidebar-footer nav[data-workspace-settings] { align-items: flex-start; }
+.workspace-sidebar-footer [data-section="settings"] { justify-content: center; width: 38px; height: 38px; padding: 0; }
+.workspace-sidebar-footer [data-section="settings"] .workspace-nav-label { display: none; }
 .workspace-context { margin-top: 22px; min-width: 0; }
 .workspace-context:empty { display: none; }
 #workspace-context > :is(aside,#sidebar) {
