@@ -381,53 +381,55 @@
       drawResults();
     }
 
-    discoverTab.addEventListener("click", () => selectTab("discover"));
-    installedTab.addEventListener("click", () => selectTab("installed"));
-    search.addEventListener("input", drawResults);
-    sourceFilter.addEventListener("change", drawResults);
-    marketRetry.addEventListener("click", openMarket);
-    $("plugin-source-form").addEventListener("submit", async event => {
-      event.preventDefault();
-      const url = sourceInput.value.trim();
-      if (!url || registryRequest) return;
-      setSourceStatus("正在订阅目录…");
-      try {
-        await withRegistryRequest({ action: "subscribe", url });
-        if (sourceInput.value.trim() === url) sourceInput.value = "";
-        setSourceStatus("已订阅目录。");
-      } catch (error) {
-        setSourceStatus("订阅目录失败。" + errorMessage(error), true);
-      }
-      sourceInput.focus();
-    });
-    confirmCancel.addEventListener("click", closeConfirmation);
-    confirmDialog.addEventListener("cancel", event => {
-      event.preventDefault();
-      if (!registryRequest) closeConfirmation();
-    });
-    $("plugin-confirm-form").addEventListener("submit", async event => {
-      event.preventDefault();
-      const confirmation = pendingConfirmation;
-      if (!confirmation || confirmSubmit.disabled) return;
-      confirmError.hidden = true;
-      confirmSubmit.textContent = "正在处理…";
-      try {
-        await withRegistryRequest(confirmation.payload);
-        closeConfirmation();
-        const outcome = {
-          "安装并启用": "已安装并启用插件。",
-          "确认更新": "插件已更新。",
-          "确认卸载": "插件已卸载。",
-        };
-        if (confirmation.payload.action === "unsubscribe") setSourceStatus("已移除目录。");
-        else setMarketStatus(outcome[confirmation.label]);
-      } catch (error) {
-        confirmError.textContent = "操作未完成。" + errorMessage(error);
-        confirmError.hidden = false;
-        confirmSubmit.textContent = confirmation.label;
-        confirmSubmit.focus();
-      }
-    });
+    if (discoverTab) {
+      discoverTab.addEventListener("click", () => selectTab("discover"));
+      installedTab.addEventListener("click", () => selectTab("installed"));
+      search.addEventListener("input", drawResults);
+      sourceFilter.addEventListener("change", drawResults);
+      marketRetry.addEventListener("click", openMarket);
+      $("plugin-source-form").addEventListener("submit", async event => {
+        event.preventDefault();
+        const url = sourceInput.value.trim();
+        if (!url || registryRequest) return;
+        setSourceStatus("正在订阅目录…");
+        try {
+          await withRegistryRequest({ action: "subscribe", url });
+          if (sourceInput.value.trim() === url) sourceInput.value = "";
+          setSourceStatus("已订阅目录。");
+        } catch (error) {
+          setSourceStatus("订阅目录失败。" + errorMessage(error), true);
+        }
+        sourceInput.focus();
+      });
+      confirmCancel.addEventListener("click", closeConfirmation);
+      confirmDialog.addEventListener("cancel", event => {
+        event.preventDefault();
+        if (!registryRequest) closeConfirmation();
+      });
+      $("plugin-confirm-form").addEventListener("submit", async event => {
+        event.preventDefault();
+        const confirmation = pendingConfirmation;
+        if (!confirmation || confirmSubmit.disabled) return;
+        confirmError.hidden = true;
+        confirmSubmit.textContent = "正在处理…";
+        try {
+          await withRegistryRequest(confirmation.payload);
+          closeConfirmation();
+          const outcome = {
+            "安装并启用": "已安装并启用插件。",
+            "确认更新": "插件已更新。",
+            "确认卸载": "插件已卸载。",
+          };
+          if (confirmation.payload.action === "unsubscribe") setSourceStatus("已移除目录。");
+          else setMarketStatus(outcome[confirmation.label]);
+        } catch (error) {
+          confirmError.textContent = "操作未完成。" + errorMessage(error);
+          confirmError.hidden = false;
+          confirmSubmit.textContent = confirmation.label;
+          confirmSubmit.focus();
+        }
+      });
+    }
 
     function clearToolResult() {
       toolOutput = null;
@@ -574,98 +576,100 @@
       toolDownload.hidden = false;
     }
 
-    toolDownload.addEventListener("click", async event => {
-      const output = toolOutput;
-      if (!output?.nativeSave) return;
-      event.preventDefault();
-      if (saveRequest) return;
-      saveRequest = output;
-      paintToolControls();
-      setToolStatus("请选择保存位置…");
-      try {
-        const result = await api("/plugins/save-output", output.payload);
-        if (toolOutput !== output) return;
-        if (result.browser_download === true) {
-          output.nativeSave = false;
-          toolDownload.textContent = output.payload.format === "markdown" ? "下载 Markdown" : "下载文本";
-          toolDownload.removeAttribute("aria-disabled");
-          toolDownload.click();
-          setToolStatus("已将文件交给浏览器下载。");
-        } else if (typeof result.saved === "boolean") {
-          setToolStatus(result.saved ? "文件已保存。" : "已取消保存。");
-        } else {
-          throw new Error("本机服务未返回保存结果。");
+    if (toolsDialog) {
+      toolDownload.addEventListener("click", async event => {
+        const output = toolOutput;
+        if (!output?.nativeSave) return;
+        event.preventDefault();
+        if (saveRequest) return;
+        saveRequest = output;
+        paintToolControls();
+        setToolStatus("请选择保存位置…");
+        try {
+          const result = await api("/plugins/save-output", output.payload);
+          if (toolOutput !== output) return;
+          if (result.browser_download === true) {
+            output.nativeSave = false;
+            toolDownload.textContent = output.payload.format === "markdown" ? "下载 Markdown" : "下载文本";
+            toolDownload.removeAttribute("aria-disabled");
+            toolDownload.click();
+            setToolStatus("已将文件交给浏览器下载。");
+          } else if (typeof result.saved === "boolean") {
+            setToolStatus(result.saved ? "文件已保存。" : "已取消保存。");
+          } else {
+            throw new Error("本机服务未返回保存结果。");
+          }
+        } catch (error) {
+          if (toolOutput === output) setToolStatus("保存失败。" + errorMessage(error), true);
+        } finally {
+          saveRequest = null;
+          if (toolsDialog.open) paintToolControls();
         }
-      } catch (error) {
-        if (toolOutput === output) setToolStatus("保存失败。" + errorMessage(error), true);
-      } finally {
-        saveRequest = null;
-        if (toolsDialog.open) paintToolControls();
-      }
-    });
+      });
 
-    toolsOpen.addEventListener("click", openTools);
-    $("plugin-tools-close").addEventListener("click", () => closeTools(true));
-    toolsDialog.addEventListener("cancel", event => {
-      event.preventDefault();
-      closeTools(true);
-    });
-    $("plugin-tools-retry").addEventListener("click", () => {
-      $("plugin-tools-retry").hidden = true;
-      setToolStatus("正在读取已启用的插件工具…");
-      void loadTools(toolsScope);
-    });
-    function changedToolInput() {
-      clearToolResult();
-      paintToolControls();
-      describeToolAvailability();
+      toolsOpen.addEventListener("click", openTools);
+      $("plugin-tools-close").addEventListener("click", () => closeTools(true));
+      toolsDialog.addEventListener("cancel", event => {
+        event.preventDefault();
+        closeTools(true);
+      });
+      $("plugin-tools-retry").addEventListener("click", () => {
+        $("plugin-tools-retry").hidden = true;
+        setToolStatus("正在读取已启用的插件工具…");
+        void loadTools(toolsScope);
+      });
+      function changedToolInput() {
+        clearToolResult();
+        paintToolControls();
+        describeToolAvailability();
+      }
+      toolSelect.addEventListener("change", changedToolInput);
+      fromRound.addEventListener("input", changedToolInput);
+      toRound.addEventListener("input", changedToolInput);
+      $("plugin-tools-form").addEventListener("submit", async event => {
+        event.preventDefault();
+        if (toolRun.disabled || !toolsScope) return;
+        const { plugin, action } = choices[toolSelect.value];
+        const payload = {
+          source_id: plugin.source_id, sha256: plugin.sha256, version: plugin.version,
+          plugin_id: plugin.id, action_id: action.id,
+        };
+        if (action.input === "public_turns") {
+          const from = !fromRound.disabled && fromRound.value ? Number(fromRound.value) : null;
+          const to = !toRound.disabled && toRound.value ? Number(toRound.value) : null;
+          if ([from, to].some(value => value !== null && (!Number.isSafeInteger(value) || value < 1)) ||
+              (from !== null && to !== null && from > to)) {
+            setToolStatus("请输入有效的轮次范围，结束轮次须不小于起始轮次。", true);
+            return;
+          }
+          if (from !== null) payload.from_round = from;
+          if (to !== null) payload.to_round = to;
+        }
+        const scope = toolsScope;
+        const request = {};
+        actionRequest = request;
+        clearToolResult();
+        paintToolControls();
+        setToolStatus("正在运行插件工具…");
+        try {
+          const result = await api("/sessions/" + encodeURIComponent(scope.id) + "/plugin-action", payload);
+          if (actionRequest !== request) return;
+          showToolResult(result);
+          setToolStatus("运行完成。");
+        } catch (error) {
+          if (actionRequest === request) setToolStatus("运行失败。" + errorMessage(error), true);
+        } finally {
+          if (actionRequest === request) {
+            actionRequest = null;
+            paintToolControls();
+          }
+        }
+      });
     }
-    toolSelect.addEventListener("change", changedToolInput);
-    fromRound.addEventListener("input", changedToolInput);
-    toRound.addEventListener("input", changedToolInput);
-    $("plugin-tools-form").addEventListener("submit", async event => {
-      event.preventDefault();
-      if (toolRun.disabled || !toolsScope) return;
-      const { plugin, action } = choices[toolSelect.value];
-      const payload = {
-        source_id: plugin.source_id, sha256: plugin.sha256, version: plugin.version,
-        plugin_id: plugin.id, action_id: action.id,
-      };
-      if (action.input === "public_turns") {
-        const from = !fromRound.disabled && fromRound.value ? Number(fromRound.value) : null;
-        const to = !toRound.disabled && toRound.value ? Number(toRound.value) : null;
-        if ([from, to].some(value => value !== null && (!Number.isSafeInteger(value) || value < 1)) ||
-            (from !== null && to !== null && from > to)) {
-          setToolStatus("请输入有效的轮次范围，结束轮次须不小于起始轮次。", true);
-          return;
-        }
-        if (from !== null) payload.from_round = from;
-        if (to !== null) payload.to_round = to;
-      }
-      const scope = toolsScope;
-      const request = {};
-      actionRequest = request;
-      clearToolResult();
-      paintToolControls();
-      setToolStatus("正在运行插件工具…");
-      try {
-        const result = await api("/sessions/" + encodeURIComponent(scope.id) + "/plugin-action", payload);
-        if (actionRequest !== request) return;
-        showToolResult(result);
-        setToolStatus("运行完成。");
-      } catch (error) {
-        if (actionRequest === request) setToolStatus("运行失败。" + errorMessage(error), true);
-      } finally {
-        if (actionRequest === request) {
-          actionRequest = null;
-          paintToolControls();
-        }
-      }
-    });
 
     return {
       openMarket, closeTools, updateSession,
-      isOpen: () => Boolean(toolsDialog.open || confirmDialog.open),
+      isOpen: () => Boolean(toolsDialog?.open || confirmDialog?.open),
     };
   }
 

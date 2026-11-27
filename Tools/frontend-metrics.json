@@ -7,7 +7,7 @@
   ],
   "metrics": {
     "hex_colors_outside_palette": 0,
-    "important_lines": 13,
+    "important_lines": 11,
     "distinct_media_widths": 3,
     "distinct_font_sizes": 7,
     "distinct_border_radii": 4,
@@ -23,7 +23,8 @@
     "research.html": {"stylesheets": 4, "scripts": 12},
     "science-tools.html": {"stylesheets": 3, "scripts": 7},
     "session-transcript.html": {"stylesheets": 1, "scripts": 0},
-    "studio.html": {"stylesheets": 27, "scripts": 35},
+    "settings.html": {"stylesheets": 5, "scripts": 6},
+    "studio.html": {"stylesheets": 23, "scripts": 31},
     "workspace-shell.html": {"stylesheets": 6, "scripts": 11},
     "workspace-welcome.html": {"stylesheets": 1, "scripts": 1}
   }

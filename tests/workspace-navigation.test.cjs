@@ -14,7 +14,7 @@ test("every desktop surface mounts the same workspace navigation", () => {
   assert.equal(shell.match(/<nav data-workspace-nav /g).length, 1);
   const sidebar = shell.slice(shell.indexOf('<aside id="workspace-sidebar"'), shell.indexOf('</aside>'));
   assert.match(sidebar, /<nav data-workspace-nav /);
-  assert.match(sidebar, /class="workspace-sidebar-footer workspace-main-nav">\s*<nav data-workspace-settings /);
+  assert.match(sidebar, /class="workspace-sidebar-footer workspace-main-nav"[^>]*>\s*<nav data-workspace-settings /);
   assert.doesNotMatch(shell, /class="workspace-roots"/);
   assert.match(sidebar, /id="workspace-context"/);
   assert.match(sidebar, /id="workspace-projects"/);
@@ -26,7 +26,7 @@ test("every desktop surface mounts the same workspace navigation", () => {
   assert.doesNotMatch(read("research.html"), /id="nav-toggle"/);
   assert.match(shell,/src="\/static\/workspace-nav.js"/);
   assert.match(shell,/{{template "content" ./);
-  for (const page of ["research", "reader", "studio", "lab", "science-tools","api"]) {
+  for (const page of ["research", "reader", "studio", "settings", "lab", "science-tools", "api"]) {
     const markup = read(page + ".html");
     assert.match(markup,/{{define "content"}}/,page);
     assert.doesNotMatch(markup,/<nav data-workspace-nav |<body|<iframe/i,page);
@@ -34,11 +34,17 @@ test("every desktop surface mounts the same workspace navigation", () => {
   const links = navigation.destinations(new URL("/reader?paper=astro&project=project-B", origin));
   assert.deepEqual(links.map(l => l.key), ["home","projects","library","calendar","lab","settings"]);
   assert.equal(links.find(l => l.active).key, "projects");
+  assert.equal(links.find(l => l.key === "settings").href, "/settings?project=project-B");
   for (const link of links) {
     const url = new URL(link.href, origin);
     assert.equal(url.searchParams.get("project"), link.key === "settings" ? "project-B" : null);
   }
+  assert.equal(navigation.destinations(new URL("/settings?project=A", origin)).find(l => l.active).key, "settings");
   assert.equal(navigation.destinations(new URL("/studio?view=settings&project=A", origin)).find(l => l.active).key, "settings");
+  assert.equal(navigation.isSettings(new URL("/settings", origin)), true);
+  assert.equal(navigation.isSettings(new URL("/settings?section=plugins", origin)), true);
+  assert.equal(navigation.isSettings(new URL("/studio?view=settings", origin)), true);
+  assert.equal(navigation.isSettings(new URL("/studio?view=plugins", origin)), true);
   assert.equal(navigation.destinations(new URL("/reader?paper=astro", origin)).find(l => l.active).key, "library");
 });
 
@@ -52,7 +58,52 @@ test("AI has one global entry and explicit chat and discussion modes with option
   }
   assert.equal(navigation.modeURL("single", "A"), "/lab?project=A");
   assert.equal(navigation.modeURL("roundtable", null), "/studio?scope=global");
+  assert.equal(navigation.aiMode(new URL("/settings", origin)), "");
   assert.equal(navigation.aiMode(new URL("/studio?view=settings", origin)), "");
+});
+
+test("settings navigation preserves sci.settings.entry for back-navigation from any surface", () => {
+  const stored = new Map();
+  const sessionStorage = {
+    getItem: key => stored.has(key) ? stored.get(key) : null,
+    setItem: (key, val) => stored.set(key, String(val)),
+    removeItem: key => stored.delete(key),
+  };
+  const window = new EventTarget();
+  const navEl = {dataset: {}, replaceChildren() {}};
+  const backLink = {href: "/research", addEventListener() {}};
+  const document = {
+    getElementById: id => id === "workspace-settings-back" ? backLink : null,
+    querySelector: sel => sel === "[data-workspace-nav]" ? navEl : null,
+    createElement: () => ({dataset: {}, setAttribute() {}, append() {}}),
+    addEventListener() {},
+  };
+  const startHref = origin + "/reader?paper=p1#quote=42";
+  const location = new URL(startHref);
+  const visited = [];
+  location.assign = value => visited.push(value);
+  const history = {state: null, replaceState(s) { this.state = s; }};
+  vm.runInNewContext(read("workspace-nav.js"), {
+    window, document, history, location, sessionStorage, URL, URLSearchParams, CustomEvent, Event, performance,
+    fetch: async () => ({ok: true}),
+  });
+  assert.equal(window.SciStationNav.command("settings"), true);
+  assert.deepEqual(visited, ["/settings"]);
+  const entry = JSON.parse(sessionStorage.getItem("sci.settings.entry"));
+  assert.equal(entry.from, startHref);
+  assert.equal(entry.to, origin + "/settings");
+
+  // Re-entering on /settings consumes sci.settings.entry and wires the Back link.
+  const settingsWindow = new EventTarget();
+  const settingsLocation = new URL(origin + "/settings");
+  const settingsHistory = {state: null, replaceState(s) { this.state = s; }};
+  vm.runInNewContext(read("workspace-nav.js"), {
+    window: settingsWindow, document, history: settingsHistory, location: settingsLocation, sessionStorage,
+    URL, URLSearchParams, CustomEvent, Event, performance, fetch: async () => ({ok: true}),
+  });
+  assert.equal(sessionStorage.getItem("sci.settings.entry"), null);
+  assert.equal(settingsHistory.state.settingsReturn, startHref);
+  assert.equal(backLink.href, startHref);
 });
 
 test("AI commands stay unavailable until the active workspace confirms its module", async () => {

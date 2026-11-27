@@ -8,6 +8,7 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Serve Settings on its own `/settings` shell surface (`settings.html`, `settings.css`, `settings.js`) with a centered readable content column, per-section descriptions, and `role="status"` feedback, loading only settings assets (5 stylesheets, 6 scripts), removing `body.settings-mode`, and preserving legacy `/studio?view=settings|plugins`, `Cmd+,`, and `sci.settings.entry` back-navigation.
 - Declare CSS inline-size containers on shell regions (`.workspace-region`, `#context-rail`, `dialog`), migrate page and component responsive rules to `@container` queries, and consolidate viewport `@media` widths to 3 documented shell breakpoints (`680px`, `999px`, `1000px`).
 - Consolidate base form/button/dialog controls and shared workbench components (`card`, `empty-row`, `action-link`, `badge`/`status-badge`, `menu`, `drawer`, `disclosure`, `diff-view`, `page-header`, `toolbar`) into `components.css` with unified focus rings, disabled styling, and reduced-motion support, enforced by `base_control_allowlist` in the frontend metrics ratchet.
 - Consolidate all theme palettes, semantic colors, 6-step type ramp, 3-step border radii, 4px spacing scale, and named z-index layers into `tokens.css`; drive dark mode solely via `[data-theme="dark"]`, remove legacy `color-themes.css` alias patches, and verify WCAG AA contrast across all 16 locale × theme × color-theme combinations.

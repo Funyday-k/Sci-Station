@@ -132,7 +132,6 @@
     } catch (_) {}
   }
   const appearance = window.RoundtableAppearance;
-  const colorThemeControl = $("settings-form").elements.namedItem("color_theme");
   function showError(error) {
     $("notice-text").textContent = error.message || String(error);
     $("notice").hidden = false;
@@ -448,14 +447,9 @@
     }
   }
   function switchView(view) {
-    if (!restoringRoute && view === "table" && ["settings", "plugins"].includes(state.view)) {
-      const url = new URL(location.href);
-      if (!window.SciStationNav.aiAvailable(url.searchParams.get("project"))) return;
-      if (!state.draftOpen && !state.session) {
-        url.searchParams.delete("view");
-        location.assign(url.href);
-        return;
-      }
+    if (view === "settings" || view === "plugins") {
+      window.SciStationNav.command(view);
+      return;
     }
     closeHistoryMenu(false);
     if ($("project-dialog").open) $("project-dialog").close();
@@ -464,38 +458,15 @@
       if (allChanges().length) openChanges();
       return;
     }
-    if (view !== "table") {
-      resetRoomDisclosures();
-      createCommands.close();
-      reportUI.close();
-      pluginsUI.closeTools();
-      closeChanges(false);
-      window.RoundtableChildren?.close({ restoreFocus: false });
-    }
-    state.view = view;
+    state.view = "table";
     const viewURL = new URL(location.href);
-    if (view === "table") viewURL.searchParams.delete("view");
-    else viewURL.searchParams.set("view", view);
-    if (!restoringRoute) window.SciStationNav.commitURL(viewURL,"push");
-    $("table-view").hidden = view !== "table";
+    viewURL.searchParams.delete("view");
+    if (!restoringRoute) window.SciStationNav.commitURL(viewURL, "push");
+    $("table-view").hidden = false;
     syncBoardPresence();
     if (state.session) schedulePoll();
-    $("settings-view").hidden = !["settings", "plugins"].includes(view);
-    if (view === "table" && !state.selected && !$("create-form").hidden) setup.resume();
+    if (!state.selected && !$("create-form").hidden) setup.resume();
     renderHeading();
-    for (const button of document.querySelectorAll(".view-tab")) {
-      const selected = button.dataset.view === view;
-      button.classList.toggle("selected", selected);
-      if (selected) button.setAttribute("aria-current", "page");
-      else button.removeAttribute("aria-current");
-    }
-    if (view === "settings") {
-      window.RoundtableSettingsNav?.select("models");
-      refreshSettingsOverview();
-    }
-    if (view === "plugins") {
-      window.RoundtableSettingsNav?.select("plugins");
-    }
     window.SciShellLayout?.dismissSessionNav(true);
   }
   const cleanTitle = (value) =>
@@ -524,16 +495,13 @@
       : state.sessions.find((item) => item.id === state.selected);
   }
   function renderHeading() {
-    $("back-to-table").hidden = state.view !== "plugins" || !window.SciStationNav.aiAvailable(new URL(location.href).searchParams.get("project"));
     const projectName = state.draftOpen
       ? projects.available().find(project => project.id === state.activeProject)?.name
       : "";
     const text = (zh, en) => window.SciStationI18n?.text(zh, en) ?? zh;
-    const viewName = state.view === "settings" ? text("设置", "Settings")
-      : state.view === "plugins" ? text("插件市场", "Plugin marketplace") : "";
     const newTitle = text("新建圆桌", "New Roundtable");
-    const title = viewName || (state.selected ? sessionTitle(currentSummary()) :
-      projectName ? `${projectName} / ${newTitle}` : newTitle);
+    const title = state.selected ? sessionTitle(currentSummary()) :
+      projectName ? `${projectName} / ${newTitle}` : newTitle;
     $("view-title").textContent = title;
     $("view-title").title =
       state.view === "table" && state.titleErrors.has(state.selected) && !state.titles.has(state.selected)
@@ -803,302 +771,14 @@
     window.RoundtableRecovery.render(result.unreadable_sessions);
     renderHistory();
   }
-  const toolBudgetDefaults = {max_calls: 240, context_chars: 5000000, total_results: 5000000, per_result: 5000000, auto_read: true};
-  const toolBudgetControls = {
-    max_calls: "setting-max-tool-calls",
-    context_chars: "setting-context-chars",
-    total_results: "setting-total-tool-chars",
-    per_result: "setting-per-tool-chars",
-  };
-
-  function showToolBudget(budget) {
-    for (const [key, id] of Object.entries(toolBudgetControls)) $(id).value = budget[key];
-    $("setting-auto-read").checked = budget.auto_read;
-  }
-
-  function settingsToForm() {
+  function syncAppearanceFromSettings() {
     const settings = state.settings;
     if (!settings) return;
-    state.settingsDirty = false;
-    $("setting-appearance").value = settings.appearance || "system";
-    colorThemeControl.value = settings.color_theme || "iris";
-    $("setting-text-size").value = settings.text_size || "standard";
-    appearance.setMode($("setting-appearance").value, true);
-    appearance.setColorTheme(colorThemeControl.value, true);
-    appearance.setTextSize($("setting-text-size").value, true);
-    for (const [id, key] of [
-      ["setting-max-children", "max_children"],
-      ["setting-max-steps", "max_steps"],
-      ["setting-timeout", "timeout"],
-    ]) {
-      $(id).value = settings[key] ?? "";
-    }
-    showToolBudget(settings.tool_budget || toolBudgetDefaults);
+    appearance?.setMode(settings.appearance || "system", true);
+    appearance?.setColorTheme(settings.color_theme || "iris", true);
+    appearance?.setTextSize(settings.text_size || "standard", true);
     renderSeats();
     updateControls();
-  }
-
-  function settingsPatch() {
-    return {
-      appearance: $("setting-appearance").value,
-      color_theme: colorThemeControl.value,
-      text_size: $("setting-text-size").value,
-      max_children: Number($("setting-max-children").value),
-      max_steps: Number($("setting-max-steps").value),
-      timeout: Number($("setting-timeout").value),
-      tool_budget: {
-        ...Object.fromEntries(Object.entries(toolBudgetControls).map(([key, id]) => [key, Number($(id).value)])),
-        auto_read: $("setting-auto-read").checked,
-      },
-    };
-  }
-
-  function changedSettings() {
-    if (!state.settings) return false;
-    const patch = settingsPatch();
-    const baseline = {
-      ...state.settings,
-      appearance: state.settings.appearance || "system",
-      color_theme: state.settings.color_theme || "iris",
-      text_size: state.settings.text_size || "standard",
-    };
-    return Object.entries(patch).some(([key, value]) => key === "tool_budget"
-      ? changedToolBudget(patch) : value !== baseline[key]);
-  }
-
-  function changedToolBudget(patch) {
-    const baseline = state.settings.tool_budget || toolBudgetDefaults;
-    return Object.entries(patch.tool_budget).some(([key, value]) => baseline[key] !== value);
-  }
-
-  function updateSettingsNavigation() {
-    if (!state.settings) return;
-    const patch = settingsPatch();
-    const collaborationChanged = ["max_children", "max_steps", "timeout"]
-      .some((key) => patch[key] !== state.settings[key]) || changedToolBudget(patch);
-    const appearanceChanged = patch.appearance !== (state.settings.appearance || "system") ||
-      patch.color_theme !== (state.settings.color_theme || "iris") ||
-      patch.text_size !== (state.settings.text_size || "standard");
-    for (const tab of document.querySelectorAll(".settings-nav-item")) {
-      const key = tab.dataset.settingsPage;
-      tab.dataset.unsaved = String(
-        (key === "collaboration" && collaborationChanged) ||
-        (key === "appearance" && appearanceChanged),
-      );
-    }
-  }
-
-  function setSettingsSaveState(text) {
-    for (const status of document.querySelectorAll(".settings-save-state"))
-      status.textContent = text;
-  }
-
-  const settingsOverview = {
-    checkedAt: 0,
-    loading: false,
-    modelsKey: null,
-    modelRequest: 0,
-    agent: null,
-    agentAction: false,
-    agentRequest: 0,
-  };
-
-  function setSettingsStatus(id, label, tone = "") {
-    const status = $(id);
-    status.textContent = label;
-    status.className = `settings-status ${tone}`;
-  }
-
-  function setSettingsNote(id, text) {
-    const note = $(id);
-    note.textContent = text;
-    note.hidden = !text;
-  }
-
-  async function loadSettingsModels() {
-    const request = ++settingsOverview.modelRequest;
-    try {
-      const result = await api("/models");
-      if (request !== settingsOverview.modelRequest) return;
-      const catalog = Array.isArray(result.models) ? result.models : [];
-      const models = catalog.filter(model => !model.id.startsWith("sci-station-byok/"));
-      const list = $("magpie-model-list");
-      list.replaceChildren();
-      for (const model of models) {
-        const row = document.createElement("li");
-        row.textContent = model.label || model.id;
-        if (model.label && model.label !== model.id) {
-          const id = document.createElement("small");
-          id.textContent = model.id;
-          row.append(id);
-        }
-        list.append(row);
-      }
-      if (!models.length) {
-        const empty = document.createElement("li");
-        empty.textContent = "目录为空";
-        list.append(empty);
-      }
-      setSettingsStatus("magpie-connection", result.magpie_error ? "目录暂不可用" : "已连接", result.magpie_error ? "settings-warning" : "settings-ready");
-      setSettingsNote("magpie-connection-detail", result.magpie_error || "");
-      $("magpie-model-count").textContent = `${models.length} 个模型`;
-      $("magpie-models").hidden = Boolean(result.magpie_error);
-      const key = JSON.stringify([result.default_model, catalog]);
-      if (settingsOverview.modelsKey !== key) {
-        settingsOverview.modelsKey = key;
-        window.dispatchEvent(new Event("roundtable:models-changed"));
-      }
-    } catch (error) {
-      if (request !== settingsOverview.modelRequest) return;
-      $("magpie-models").hidden = true;
-      $("magpie-model-list").replaceChildren();
-      setSettingsStatus("magpie-connection", "目录暂不可用", "settings-warning");
-      setSettingsNote("magpie-connection-detail", error.message);
-      if (settingsOverview.modelsKey !== null) {
-        settingsOverview.modelsKey = null;
-        window.dispatchEvent(new Event("roundtable:models-changed"));
-      }
-    }
-  }
-
-  function renderMagpieAgent(result, error = "") {
-    const open = $("open-magpie");
-    const register = $("register-magpie-agent");
-    open.disabled = settingsOverview.agentAction || !result?.can_open;
-    register.disabled = settingsOverview.agentAction;
-    register.hidden = !result?.can_install;
-    if (error) {
-      setSettingsStatus("magpie-agent-status", "状态暂不可用", "settings-warning");
-      setSettingsNote("magpie-agent-detail", error);
-      return;
-    }
-    const label = result.connected
-      ? "已连接"
-      : result.registered
-        ? "已注册，等待连接"
-        : result.installed && !result.enabled
-          ? "未启用"
-          : result.installed
-            ? "等待 Magpie 加载"
-            : "未注册";
-    setSettingsStatus(
-      "magpie-agent-status",
-      label,
-      result.connected || result.registered ? "settings-ready" : "",
-    );
-    setSettingsNote(
-      "magpie-agent-detail",
-      !result.connected && (result.installed || !result.can_install)
-        ? result.detail || ""
-        : "",
-    );
-  }
-
-  async function loadMagpieAgent() {
-    if (settingsOverview.agentAction) return;
-    const request = ++settingsOverview.agentRequest;
-    try {
-      const result = await api("/magpie-agent");
-      if (request !== settingsOverview.agentRequest) return;
-      settingsOverview.agent = result;
-      renderMagpieAgent(result);
-    } catch (error) {
-      if (request === settingsOverview.agentRequest)
-        renderMagpieAgent(settingsOverview.agent, error.message);
-    }
-  }
-
-  async function magpieAgentAction(action) {
-    if (settingsOverview.agentAction) return;
-    settingsOverview.agentAction = true;
-    settingsOverview.agentRequest++;
-    settingsOverview.checkedAt = 0;
-    $("open-magpie").disabled = true;
-    $("register-magpie-agent").disabled = true;
-    let errorMessage = "";
-    try {
-      settingsOverview.agent = await api("/magpie-agent", action);
-    } catch (error) {
-      errorMessage = error.message;
-    } finally {
-      settingsOverview.agentAction = false;
-      renderMagpieAgent(settingsOverview.agent, errorMessage);
-    }
-    if (!errorMessage && !action.action) await loadSettingsModels();
-  }
-
-  function renderClients(clients) {
-    const list = $("clients-list");
-    list.replaceChildren();
-    const installed = clients
-      .filter((client) => client.installed === true)
-      .sort((a, b) => a.name.localeCompare(b.name));
-    for (const client of installed) {
-      const row = document.createElement("li");
-      row.className = "client-row";
-      const src = assetFor(client.id);
-      if (src) {
-        const tile = document.createElement("span");
-        tile.className = "client-logo";
-        const image = document.createElement("img");
-        image.src = src;
-        image.alt = "";
-        image.width = 24;
-        image.height = 24;
-        tile.append(image);
-        row.append(tile);
-      }
-      const identity = document.createElement("div");
-      identity.className = "client-identity";
-      const name = document.createElement("strong");
-      name.textContent = client.name;
-      identity.append(name);
-      if (client.path) {
-        const path = document.createElement("small");
-        path.textContent = client.path;
-        path.title = client.path;
-        identity.append(path);
-      }
-      const status = document.createElement("span");
-      status.className = "settings-status";
-      if (client.state === "ready") {
-        status.classList.add("settings-ready");
-        status.textContent = client.version ? `可运行 · ${client.version}` : "可运行";
-      } else if (client.state === "check_failed") {
-        status.classList.add("settings-warning");
-        status.textContent = "已安装 · 检查失败";
-      } else {
-        status.textContent = "已安装 · 版本未检查";
-      }
-      row.append(identity, status);
-      list.append(row);
-    }
-    setSettingsNote("clients-state", installed.length ? "" : "未找到已安装的 CLI");
-  }
-
-  async function loadClients() {
-    try {
-      const result = await api("/cli-health");
-      renderClients(result.clients || []);
-    } catch (error) {
-      setSettingsNote("clients-state", error.message);
-    }
-  }
-
-  async function refreshSettingsOverview() {
-    if (
-      state.view !== "settings" ||
-      document.hidden ||
-      settingsOverview.loading ||
-      Date.now() - settingsOverview.checkedAt < 30000
-    ) return;
-    settingsOverview.loading = true;
-    try {
-      await Promise.allSettled([loadSettingsModels(), loadMagpieAgent(), loadClients()]);
-    } finally {
-      settingsOverview.loading = false;
-      settingsOverview.checkedAt = Date.now();
-    }
   }
   const contextDrawers = {
     "participants-toggle": "participants-panel",
@@ -1751,9 +1431,6 @@
       ? continuousUI.isActive() ? "持续推进中，记录会自动更新；可随时暂停" : "本轮进行中，记录会自动更新"
       : continuousRequest ? "持续推进由本机服务按限额执行，可随时暂停" : "每次发起推进一轮";
     setup.setBusy(state.writing);
-    for (const button of document.querySelectorAll("#save-settings, #save-settings-appearance"))
-      button.disabled = state.writing || !state.settingsDirty;
-    updateSettingsNavigation();
   }
   function paintRunSubmit() {
     $("run-submit").disabled = state.writing || sessionWorking() || !state.session ||
@@ -2849,38 +2526,7 @@
   }
   $("cancel-run").addEventListener("click", cancelRun);
   $("run-continuous-pause").addEventListener("click", cancelRun);
-  window.addEventListener("focus", refreshSettingsOverview);
-  document.addEventListener("visibilitychange", refreshSettingsOverview);
   document.addEventListener("visibilitychange", schedulePoll);
-  $("open-magpie").addEventListener("click", () =>
-    magpieAgentAction({ action: "open" }),
-  );
-  $("register-magpie-agent").addEventListener("click", () =>
-    magpieAgentAction({}),
-  );
-  $("open-rules-file").addEventListener("click", async () => {
-    const button = $("open-rules-file");
-    button.disabled = true;
-    try {
-      await api("/open-rules", {});
-      clearError();
-    } catch (error) {
-      showError(error);
-    } finally {
-      button.disabled = false;
-    }
-  });
-  $("restore-tool-budget").addEventListener("click", () => {
-    showToolBudget(toolBudgetDefaults);
-    $("setting-max-steps").value = 10;
-    $("setting-auto-read").dispatchEvent(new Event("input", {bubbles: true}));
-  });
-  $("settings-form").addEventListener("input", () => {
-    state.settingsDirty = changedSettings();
-    setSettingsSaveState(state.settingsDirty ? "未保存" : "");
-    updateSettingsNavigation();
-    updateControls();
-  });
   $("latest-message").addEventListener("click", () => {
     $("table-scroll").scrollTop = $("table-scroll").scrollHeight;
     $("latest-message").hidden = true;
@@ -2894,40 +2540,7 @@
     )
       $("latest-message").hidden = true;
   });
-  $("settings-panel-appearance").addEventListener("change", (event) => {
-    const control = event.target;
-    if (control.id === "setting-appearance") appearance.setMode(control.value);
-    if (control.name === "color_theme") appearance.setColorTheme(control.value);
-    if (control.id === "setting-text-size") appearance.setTextSize(control.value);
-  });
-  $("settings-form").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (state.writing || !changedSettings()) return;
-    const invalid = [...$("settings-form").elements].find((control) => control.willValidate && !control.checkValidity());
-    if (invalid) {
-      const panel = invalid.closest(".settings-panel");
-      const tab = panel && document.getElementById(panel.getAttribute("aria-labelledby"));
-      if (tab) window.RoundtableSettingsNav?.select(tab.dataset.settingsPage);
-      invalid.reportValidity();
-      return;
-    }
-    const patch = settingsPatch();
-    state.writing = true;
-    updateControls();
-    setSettingsSaveState("正在保存…");
-    try {
-      state.settings = await api("/settings", patch);
-      settingsToForm();
-      setSettingsSaveState("已保存");
-      clearError();
-    } catch (error) {
-      showError(error);
-      setSettingsSaveState("尚未保存");
-    } finally {
-      state.writing = false;
-      updateControls();
-    }
-  });
+
   $("file-editor").addEventListener("input", fileControls);
   $("new-file-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -3051,10 +2664,7 @@
     else openChanges(null, $("meeting-actions-toggle"));
   });
   $("close-changes").addEventListener("click", () => closeChanges());
-  $("back-to-table").addEventListener("click", () => {
-    switchView("table");
-    if (state.draftOpen && !$("create-form").hidden) $("create-plugins").focus({preventScroll:true});
-  });
+
   $("file-filter").addEventListener("input", renderFiles);
   $("refresh-files").addEventListener("click", refreshWorkspace);
   for (const button of document.querySelectorAll(".view-tab"))
@@ -3096,8 +2706,7 @@
   $("create-project").addEventListener("change", event => openDraft(event.target.value));
   $("create-attach").addEventListener("click", () => createMaterials.pick("file"));
   $("create-plugins").addEventListener("click", () => {
-    switchView("plugins");
-    $("settings-tab-plugins").focus();
+    window.SciStationNav.command("plugins");
   });
   $("draft-clear-project").addEventListener("click", () => openDraft("@global"));
   $("dismiss-notice").addEventListener("click", clearError);
@@ -3126,10 +2735,6 @@
         return;
       }
     }
-    if ((event.metaKey || event.ctrlKey) && event.key === ",") {
-      event.preventDefault();
-      switchView("settings");
-    }
     if (event.key === "Escape" && state.filePanelOpen) {
       event.preventDefault();
       closeChanges();
@@ -3157,7 +2762,7 @@
   });
   window.addEventListener("hashchange", scrollAnchor);
   window.addEventListener("beforeunload", (event) => {
-    if (!state.rebinding && (dirtyFile() || state.settingsDirty)) {
+    if (!state.rebinding && dirtyFile()) {
       event.preventDefault();
       event.returnValue = "";
     }
@@ -3350,28 +2955,20 @@
     panel.hidden = false;
   }
   async function boot() {
-    const requestedView = new URL(location.href).searchParams.get("view");
     clearError();
     state.projectListStatus = "loading";
     paintDraftProject();
-    const settingsPage = ["settings", "plugins"].includes(requestedView);
-    const results = await Promise.allSettled(settingsPage ? [api("/settings")] : [api("/settings"), loadHistory(), projects.load()]);
+    const results = await Promise.allSettled([api("/settings"), loadHistory(), projects.load()]);
     state.projectListStatus = results.slice(1).every(result => result.status === "fulfilled")
       ? "ready" : "failed";
     if (results[0].status === "fulfilled") {
       state.settings = results[0].value;
-      settingsToForm();
+      syncAppearanceFromSettings();
       $("connection-status").classList.remove("offline");
       $("connection-status").textContent = "本机服务";
     } else {
       $("connection-status").classList.add("offline");
       $("connection-status").textContent = "连接中断";
-    }
-    if (settingsPage) {
-      switchView(requestedView);
-      restoringRoute = false;
-      if (results[0].status === "rejected") showError(results[0].reason);
-      return;
     }
     const entry = new URL(location.href);
     const linked = entry.searchParams.get("session");
@@ -3395,8 +2992,8 @@
     }
     try { await showLabModeImport(entry); }
     catch (error) { showError(error); }
-    if (["settings", "files", "plugins"].includes(requestedView))
-      switchView(requestedView);
+    if (entry.searchParams.get("view") === "files")
+      switchView("files");
     restoringRoute=false;
     const failure = results.find(result => result.status === "rejected");
     if (failure) showError(failure.reason);
@@ -3540,19 +3137,6 @@
       if (global) global.text = window.SciStationI18n.text("不关联项目", "No project");
     }
     renderHeading();
-  });
-  window.addEventListener("roundtable:settings-page", (event) => {
-    if (!["settings", "plugins"].includes(state.view)) return;
-    const nextView = event.detail === "plugins" ? "plugins" : "settings";
-    if (state.view !== nextView) {
-      state.view = nextView;
-      const url = new URL(location.href);
-      url.searchParams.set("view", nextView);
-      if (!restoringRoute) window.SciStationNav.commitURL(url,"push");
-      renderHeading();
-    }
-    if (event.detail === "plugins") pluginsUI.openMarket();
-    else if (event.detail === "models") refreshSettingsOverview();
   });
   const meetingActions = window.RoundtableActions.mount();
   const topicMention = window.RoundtableMention.mount({

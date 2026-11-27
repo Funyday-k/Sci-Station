@@ -15,8 +15,6 @@
     <link rel="stylesheet" href="/static/report-ui.css" />
     <link rel="stylesheet" href="/static/session-recovery.css" />
     <link rel="stylesheet" href="/static/plugin-market.css" />
-    <link rel="stylesheet" href="/static/settings-nav.css" />
-    <link rel="stylesheet" href="/static/research-modules.css" />
     <script src="/static/projects.js" defer></script>
     <script src="/static/agenda.js" defer></script>
     <script src="/static/seating-plan.js" defer></script>
@@ -27,10 +25,6 @@
     <script src="/static/input-limit.js" defer></script>
     <script src="/static/composer-input.js" defer></script>
     <script src="/static/plugin-market.js" defer></script>
-    <script src="/static/calendar-preferences.js" defer></script>
-    <script src="/static/settings-nav.js" defer></script>
-    <script src="/static/prompt-settings.js" defer></script>
-    <script src="/static/provider-profiles.js" defer></script>
     <link rel="stylesheet" href="/static/meeting-room.css" />
     <link rel="stylesheet" href="/static/member-editor.css" />
     <link rel="stylesheet" href="/static/meeting-actions.css" />
@@ -46,8 +40,6 @@
     <link rel="stylesheet" href="/static/board-edit.css" />
     <link rel="stylesheet" href="/static/board-cursors.css" />
     <link rel="stylesheet" href="/static/workspace-layout.css" />
-    <link rel="stylesheet" href="/static/color-themes.css" />
-    <link rel="stylesheet" href="/static/reading-type.css" />
     <script src="/static/board-edit.js" defer></script>
     <script src="/static/board-cursors.js" defer></script>
     <script src="/static/meeting-board.js" defer></script>
@@ -80,19 +72,6 @@
         </details>
 
       </aside>
-{{end}}
-{{define "settingsSidebar"}}
-<nav class="settings-nav" aria-label="设置分类" data-en-aria-label="Settings categories" role="tablist" aria-orientation="vertical">
-                <button id="settings-tab-storage" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-storage" data-settings-page="storage" data-l10n-text="settingsStorage" tabindex="-1">数据位置</button>
-                <button id="settings-tab-modules" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-modules" data-settings-page="modules" data-l10n-text="settingsWorkspaceModules" tabindex="-1">工作区模块</button>
-                <button id="settings-tab-models" class="settings-nav-item" type="button" role="tab" aria-selected="true" aria-controls="settings-panel-models" data-settings-page="models" data-en="Model sources">模型来源</button>
-                <button id="settings-tab-tools" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-tools" data-settings-page="tools" data-en="Local tools" tabindex="-1">本机工具</button>
-                <button id="settings-tab-collaboration" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-collaboration" data-settings-page="collaboration" data-en="Collaboration" tabindex="-1">协作权限</button>
-                <button id="settings-tab-prompts" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-prompts" data-settings-page="prompts" data-en="Workspace prompts" tabindex="-1">工作区提示词</button>
-                <button id="settings-tab-appearance" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-appearance" data-settings-page="appearance" data-en="Appearance" tabindex="-1">外观</button>
-                <button id="settings-tab-calendar" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-calendar" data-settings-page="calendar" data-en="Calendar and reminders" tabindex="-1">日历与提醒</button>
-                <button id="settings-tab-plugins" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-plugins" data-settings-page="plugins" data-en="Plugin marketplace" tabindex="-1">插件市场</button>
-              </nav>
 {{end}}
 {{define "tools"}}
   <div id="chat-toolbar" class="heading-actions" hidden>
@@ -128,9 +107,6 @@
       </div>
     </div>
   </div>
-  <button id="back-to-table" class="button secondary small" data-en="Back to Roundtable" hidden>
-    返回圆桌
-  </button>
 {{end}}
 {{define "content"}}
 <div class="app workspace-pane">
@@ -489,307 +465,6 @@
           </section>
         </section>
 
-        <section id="settings-view" class="page settings-page" hidden>
-          <div class="page-scroll">
-            <div class="settings-layout">
-
-              <div class="settings-content">
-                <form id="settings-form" class="settings-form" novalidate>
-                  <section id="settings-panel-models" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-models">
-<section class="settings-section" aria-labelledby="model-source-heading">
-                <h2 id="model-source-heading" data-en="Model sources">模型来源</h2>
-                <div class="settings-card">
-                  <div class="model-source-row">
-                    <span class="client-logo" aria-hidden="true">
-                      <img src="/static/magpie-avatar.svg" alt="" width="24" height="24" />
-                    </span>
-                    <div class="model-source-name">
-                      <strong>Magpie</strong>
-                      <span id="magpie-connection" class="settings-status" role="status">正在连接…</span>
-                    </div>
-                    <button id="open-magpie" type="button" class="button secondary small" disabled data-en="Open Magpie">
-                      打开 Magpie
-                    </button>
-                  </div>
-                  <p id="magpie-connection-detail" class="settings-note" hidden></p>
-                  <details id="magpie-models" class="magpie-models" hidden>
-                    <summary>模型目录 <span id="magpie-model-count"></span></summary>
-                    <ul id="magpie-model-list"></ul>
-                  </details>
-                  <div class="model-agent-row">
-                    <div class="model-source-name">
-                      <strong>圆桌 Agent</strong>
-                      <span id="magpie-agent-status" class="settings-status" role="status">正在读取…</span>
-                    </div>
-                    <button id="register-magpie-agent" type="button" class="button secondary small" hidden data-en="Register">
-                      注册
-                    </button>
-                  </div>
-                  <p id="magpie-agent-detail" class="settings-note" hidden></p>
-                  <p class="settings-note" data-en="Choose a Sci-Station model in Magpie’s Agents page. The local gateway identifies requests by application.">在 Magpie 的 Agents 页面为 Sci-Station 选择模型。本机网关按应用标识记录请求，无需填写 API 密钥。</p>
-                </div>
-              </section>
-              <section class="settings-section" id="provider-profiles" aria-labelledby="provider-heading" hidden>
-                <h2 id="provider-heading">直接模型</h2>
-                <div class="settings-card settings-options">
-                  <label class="setting-row" for="provider-choice"><span>OpenAI-compatible 配置</span><select id="provider-choice"></select></label>
-                  <label class="setting-row" for="provider-name"><span>名称</span><input id="provider-name" maxlength="80" placeholder="用于模型列表"></label>
-                  <label class="setting-row" for="provider-url"><span>API Base URL</span><input id="provider-url" type="url" maxlength="2048" placeholder="https://provider.example/v1" spellcheck="false"></label>
-                  <label class="setting-row" for="provider-model"><span>服务端模型 ID</span><input id="provider-model" maxlength="512" spellcheck="false"></label>
-                  <label class="setting-row" for="provider-temperature"><span>温度</span><input id="provider-temperature" type="number" min="0" max="2" step="any" value="0.2"></label>
-                  <label class="setting-row" for="provider-max-tokens"><span>最大输出 Token</span><input id="provider-max-tokens" type="number" min="1" max="10000000" placeholder="服务默认值"></label>
-                  <label class="setting-row" for="provider-vision"><span>此模型支持图像输入</span><input id="provider-vision" type="checkbox"></label>
-                  <div class="settings-footer">
-                    <button id="provider-preset" class="button secondary small" type="button">填入 DeepSeek 配置</button>
-                    <button id="provider-remove" class="button secondary small" type="button">移除配置</button>
-                    <button id="provider-save" class="button primary" type="button">保存配置</button>
-                  </div>
-                  <label class="setting-row" for="provider-key"><span>API Key</span><input id="provider-key" type="password" autocomplete="off" spellcheck="false" maxlength="4096" placeholder="留空保留已保存的 Key"></label>
-                  <p id="provider-key-status" class="settings-note"></p>
-                  <div class="settings-footer">
-                    <button id="provider-clear-key" class="button secondary small" type="button">清除已保存的 Key</button>
-                    <button id="provider-save-key" class="button secondary small" type="button">保存 Key 到钥匙串</button>
-                    <button id="provider-test" class="button secondary small" type="button">测试连接</button>
-                  </div>
-                  <p id="provider-status" class="settings-note" role="status"></p>
-                </div>
-              </section>
-                  </section>
-                  <section id="settings-panel-tools" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-tools" hidden>
-<section class="settings-section" aria-labelledby="clients-heading">
-                <h2 id="clients-heading" data-en="Local tools">本机工具</h2>
-                <div class="settings-card">
-                  <p id="clients-state" class="settings-note" role="status">正在检查…</p>
-                  <ul id="clients-list" class="clients-list"></ul>
-                </div>
-                <div class="settings-card">
-                  <a href="/tools?tab=convert">管理 MinerU Token</a>
-                </div>
-              </section>
-                  </section>
-                  <section id="settings-panel-collaboration" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-collaboration" hidden>
-<section class="settings-section" aria-labelledby="collaboration-heading">
-                <h2 id="collaboration-heading" data-en="Collaboration">协作</h2>
-                <div class="settings-card settings-options">
-                  <div class="setting-row">
-                    <label for="setting-max-children" data-en="Tool agents per seat">每席工具代理上限</label>
-                    <input id="setting-max-children" type="number" min="0" max="5" required />
-                  </div>
-                  <div class="setting-row">
-                    <label for="setting-max-steps" data-en="Maximum work steps">工作步骤上限</label>
-                    <input id="setting-max-steps" type="number" min="2" max="40" required />
-                  </div>
-                  <div class="setting-row">
-                    <label for="setting-timeout" data-en="Model call timeout (seconds)">单次模型调用超时（秒）</label>
-                    <input id="setting-timeout" type="number" min="10" max="1800" required />
-                  </div>
-                  <div class="setting-row"><label for="setting-max-tool-calls" data-en="Tool calls per seat">每席工具调用上限</label><input id="setting-max-tool-calls" type="number" min="1" max="240" required></div>
-                  <div class="setting-row"><label for="setting-context-chars" data-en="Text context characters">文本上下文字数</label><input id="setting-context-chars" type="number" min="1000" max="5000000" required></div>
-                  <div class="setting-row"><label for="setting-total-tool-chars" data-en="Total tool result characters">工具结果累计字数</label><input id="setting-total-tool-chars" type="number" min="1000" max="5000000" required></div>
-                  <div class="setting-row"><label for="setting-per-tool-chars" data-en="Characters per tool result">单次工具结果字数</label><input id="setting-per-tool-chars" type="number" min="1000" max="5000000" required></div>
-                  <div class="setting-row"><label for="setting-auto-read" data-en="Automatically allow discussion reads">自动批准讨论中的读取</label><input id="setting-auto-read" type="checkbox"></div>
-                  <p class="settings-note" data-en="When off, approve each requested file or statement read in the conversation. These settings apply to new turns. CLI tools follow their own permissions.">关闭后，在对话中逐项允许或拒绝申请读取的文件或发言。设置用于新轮次。CLI 工具使用各自的权限。</p>
-                  <button id="restore-tool-budget" class="button secondary" type="button" data-en="Restore tool budget defaults">恢复默认工具预算</button>
-                </div>
-              </section>
-                    <div class="settings-rules">
-                      <button id="open-rules-file" type="button" class="button secondary" data-en="Discussion rules file">讨论规则文件</button>
-                    </div>
-                    <div class="settings-footer">
-                      <span class="settings-save-state quiet" role="status"></span>
-                      <button id="save-settings" type="submit" class="button primary" disabled data-en="Save settings">保存设置</button>
-                    </div>
-                  </section>
-                  <section id="settings-panel-prompts" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-prompts" hidden>
-                    <section class="settings-section" aria-labelledby="prompt-settings-title">
-                      <h2 id="prompt-settings-title" data-en="Workspace prompts">工作区提示词</h2>
-                      <p class="settings-note" data-en="These instructions are added to the built-in rules for new runs in this workspace.">新发起的工作会在内置规则后附加当前工作区的指引。</p>
-                      <fieldset class="settings-card settings-options" id="prompt-editor" disabled>
-                        <label class="setting-row" for="prompt-surface"><span data-en="Used for">用途</span><select id="prompt-surface">
-                          <option value="planner" data-en="Agenda planning">议程规划</option>
-                          <option value="tool_loop" data-en="Discussion and follow-ups">讨论与追问</option>
-                          <option value="paper_summary" data-en="Single-seat paper reading">单席论文精读</option>
-                        </select></label>
-                        <label class="setting-row" for="prompt-template"><span data-en="Template">模板</span><select id="prompt-template"></select></label>
-                        <label class="setting-row" for="prompt-title"><span data-en="Template name">模板名称</span><input id="prompt-title" maxlength="80"></label>
-                        <label class="setting-row" for="prompt-description"><span data-en="Description">说明</span><input id="prompt-description" maxlength="1000"></label>
-                        <label for="prompt-system"><span data-en="Additional system guidance">附加角色指引</span><textarea id="prompt-system" rows="2" maxlength="4000"></textarea></label>
-                        <label for="prompt-body"><span data-en="Instructions">正文</span><textarea id="prompt-body" rows="7" maxlength="6500"></textarea></label>
-                        <label class="setting-row" for="prompt-enabled"><span data-en="Enabled">启用</span><input type="checkbox" id="prompt-enabled" checked></label>
-                        <label class="setting-row" for="prompt-active"><span data-en="Use for new runs">用于新发起的工作</span><input type="checkbox" id="prompt-active"></label>
-                        <div class="settings-footer prompt-actions">
-                          <button id="prompt-preview" type="button" class="button primary" data-en="Review changes">预览修改</button>
-                          <button id="prompt-suggest" type="button" class="button secondary" data-en="Suggest evidence guidance">建议证据指引</button>
-                          <button id="prompt-restore" type="button" class="button secondary" data-en="Restore built-in prompt">恢复内置提示词</button>
-                          <button id="prompt-remove" type="button" class="button secondary" data-en="Remove template">移除模板</button>
-                        </div>
-                      </fieldset>
-                      <p class="settings-note" id="prompt-status" role="status"></p>
-                    </section>
-                  </section>
-                  <section id="settings-panel-appearance" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-appearance" hidden>
-                    <section class="settings-section" aria-labelledby="interface-language-heading">
-                      <h2 id="interface-language-heading" data-l10n-text="settingsInterfaceLanguage">界面语言</h2>
-                      <div class="settings-card">
-                        <label class="sr-only" for="interface-language" data-l10n-text="settingsInterfaceLanguage">界面语言</label>
-                        <select id="interface-language" disabled aria-describedby="interface-language-help">
-                          <option value="system" data-en="Follow system">跟随系统</option>
-                          <option value="zh-Hans">简体中文</option>
-                          <option value="en">English</option>
-                        </select>
-                        <p id="interface-language-help" class="quiet" data-l10n-text="settingsLanguageHelp">语言设置会用于已经统一的新界面文案。</p>
-                        <p id="interface-language-status" class="quiet" role="status"></p>
-                      </div>
-                    </section>
-                    <section class="settings-section" aria-labelledby="appearance-heading">
-                      <h2 id="appearance-heading" data-en="Appearance">外观</h2>
-                      <div class="settings-card settings-options">
-                        <div class="setting-row">
-                          <label for="setting-appearance" data-en="Light and dark mode">明暗模式</label>
-                          <select id="setting-appearance">
-                            <option value="system" data-en="Follow system">随系统</option>
-                            <option value="light" data-en="Light">浅色</option>
-                            <option value="dark" data-en="Dark">深色</option>
-                          </select>
-                        </div>
-                        <div class="setting-row">
-                          <div>
-                            <label for="setting-text-size" data-en="Text size">字号</label>
-                            <p class="reading-preview" id="text-size-preview" data-en="Preview body and conversation text">正文与对话预览</p>
-                          </div>
-                          <select id="setting-text-size" aria-describedby="text-size-preview">
-                            <option value="standard" data-en="Standard">标准</option>
-                            <option value="large" data-en="Large">大</option>
-                            <option value="extra-large" data-en="Extra large">特大</option>
-                          </select>
-                        </div>
-                        <div class="theme-settings">
-                          <fieldset>
-                            <legend data-en="Color theme">配色主题</legend>
-                            <div class="theme-choices">
-                              <label class="theme-choice">
-                                <input class="sr-only" type="radio" name="color_theme" value="iris" checked />
-                                <span class="theme-choice-content">
-                                  <span class="theme-swatch" data-color-theme="iris" aria-hidden="true"></span>
-                                  <span data-en="Iris">鸢尾紫</span>
-                                </span>
-                              </label>
-                              <label class="theme-choice">
-                                <input class="sr-only" type="radio" name="color_theme" value="teal" />
-                                <span class="theme-choice-content">
-                                  <span class="theme-swatch" data-color-theme="teal" aria-hidden="true"></span>
-                                  <span data-en="Teal">松石青</span>
-                                </span>
-                              </label>
-                              <label class="theme-choice">
-                                <input class="sr-only" type="radio" name="color_theme" value="amber" />
-                                <span class="theme-choice-content">
-                                  <span class="theme-swatch" data-color-theme="amber" aria-hidden="true"></span>
-                                  <span data-en="Amber">暖琥珀</span>
-                                </span>
-                              </label>
-                              <label class="theme-choice">
-                                <input class="sr-only" type="radio" name="color_theme" value="blue" />
-                                <span class="theme-choice-content">
-                                  <span class="theme-swatch" data-color-theme="blue" aria-hidden="true"></span>
-                                  <span data-en="Blue">海蓝</span>
-                                </span>
-                              </label>
-                            </div>
-                          </fieldset>
-                        </div>
-                      </div>
-                    </section>
-                    <div class="settings-footer">
-                      <span class="settings-save-state quiet" role="status"></span>
-                      <button id="save-settings-appearance" type="submit" class="button primary" disabled data-en="Save settings">保存设置</button>
-                    </div>
-                  </section>
-                </form>
-                <section id="settings-panel-storage" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-storage" hidden>
-                  <h2 class="settings-panel-title" data-l10n-text="settingsStorage">数据位置</h2>
-                  <div class="settings-card storage-settings">
-                    <dl class="storage-locations">
-                      <div><dt data-l10n-text="storageDataFolder">公共数据文件夹</dt><dd id="storage-data-path">{{.Storage.Data}}</dd></div>
-                      <div><dt data-l10n-text="storageLibraryFolder">公共论文库</dt><dd id="storage-library-path">{{.Storage.Library}}</dd></div>
-                      <div><dt data-l10n-text="storageDefaultFolder">默认位置</dt><dd id="storage-default-path">{{.Storage.Default}}</dd></div>
-                    </dl>
-                    {{if .Desktop}}
-                    <p class="quiet" data-l10n-text="storageSwitchHint">切换后会打开所选文件夹中的项目和论文。当前文件保留在原位。</p>
-                    <div class="storage-actions">
-                      <button id="storage-choose" type="button" class="button secondary" data-root-action="choose-storage" data-l10n-text="storageChoose">选择数据文件夹…</button>
-                      <button id="storage-use-default" type="button" class="button secondary" data-root-action="default-storage" data-l10n-text="storageUseDefault" {{if .Storage.AtDefault}}disabled{{end}}>使用默认位置</button>
-                      <button id="storage-reveal" type="button" class="button secondary" data-root-action="reveal" data-l10n-text="storageReveal">在 Finder 中显示</button>
-                    </div>
-                    {{end}}
-                  </div>
-                </section>
-                <section id="settings-panel-calendar" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-calendar" hidden>
-                  <h2 class="settings-panel-title" data-en="Calendar and reminders">日历与提醒</h2>
-                  <div class="settings-card">
-                    <label><input type="checkbox" id="sync-new-apple-reminders" disabled> <span data-en="Sync new tasks to Apple Reminders">将新任务自动同步到 Apple 提醒事项</span></label>
-                    <p class="quiet" data-en="Automatic sync requires existing macOS permission. You can connect Apple Calendar and Reminders from the system calendar page.">自动同步使用已有的 macOS 授权。在系统日历页面连接 Apple 日历与提醒事项。</p>
-                    <p id="calendar-preference-status" class="quiet" role="status"></p>
-                    <a class="button secondary" href="/tools?tab=calendar" data-en="Open system calendar">打开系统日历</a>
-                  </div>
-                </section>
-                <section id="settings-panel-modules" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-modules" hidden>
-                  <h2 class="settings-panel-title" data-l10n-text="settingsWorkspaceModules">工作区模块</h2>
-                  <div class="module-settings-scope">
-                    <label for="module-settings-project" data-en="Scope">范围</label>
-                    <select id="module-settings-project" disabled><option data-en="Workspace defaults" value="">工作区默认</option></select>
-                    <button id="module-settings-reset" class="button secondary small" type="button" data-en="Reset workspace defaults" disabled>恢复工作区默认</button>
-                    <button id="module-settings-reload" class="button secondary small" type="button" data-en="Reload">重新读取</button>
-                  </div>
-                  <p id="module-settings-status" class="quiet" role="status"></p>
-                  <div id="module-settings-list" class="settings-card"></div>
-                  <dialog id="module-settings-confirm" aria-labelledby="module-settings-confirm-message">
-                    <form method="dialog">
-                      <p id="module-settings-confirm-message"></p>
-                      <div class="module-settings-confirm-actions">
-                        <button class="button secondary" value="cancel" data-en="Cancel" autofocus>取消</button>
-                        <button class="button primary" value="confirm" data-en="Confirm">确认</button>
-                      </div>
-                    </form>
-                  </dialog>
-                </section>
-                <section id="settings-panel-plugins" class="settings-panel" role="tabpanel" aria-labelledby="settings-tab-plugins" hidden>
-                  <h2 class="settings-panel-title" data-en="Plugin marketplace">插件市场</h2>
-            <div class="plugin-market">
-              <div class="plugin-market-main">
-                <p class="plugin-market-intro" data-en="Enabled plugin guidance applies to upcoming rounds and new reports in all projects. Run plugin tools from a meeting.">启用的插件指引用于所有项目接下来的讨论轮次和新报告。插件工具须在会议中手动运行。</p>
-                <div class="plugin-market-tabs" role="group" aria-label="插件列表">
-                  <button id="plugin-tab-discover" class="button secondary" type="button" aria-pressed="true" data-en="Discover plugins">发现插件</button>
-                  <button id="plugin-tab-installed" class="button secondary" type="button" aria-pressed="false" data-en="Installed">已安装</button>
-                </div>
-                <div class="plugin-market-filters">
-                  <label class="sr-only" for="plugin-search" data-en="Search plugins">搜索插件</label>
-                  <input id="plugin-search" type="search" placeholder="搜索插件、作者或用途" autocomplete="off" />
-                  <label class="sr-only" for="plugin-source-filter" data-en="Filter by catalog">筛选插件目录</label>
-                  <select id="plugin-source-filter"><option value="" data-en="All catalogs">所有目录</option></select>
-                </div>
-                <div class="plugin-market-status">
-                  <p id="plugin-market-status" role="status"></p>
-                  <button id="plugin-market-retry" class="button secondary small" type="button" hidden data-en="Reload">重新读取</button>
-                </div>
-                <div id="plugin-market-results"></div>
-              </div>
-              <section class="plugin-source-panel" aria-labelledby="plugin-source-title">
-                <h2 id="plugin-source-title" data-en="Plugin catalogs">插件目录</h2>
-                <form id="plugin-source-form">
-                  <label for="plugin-source-url" data-en="Catalog URL">订阅目录地址</label>
-                  <input id="plugin-source-url" type="url" placeholder="https://example.com/catalog.json" required autocomplete="off" spellcheck="false" />
-                  <button id="plugin-source-add" class="button secondary small" type="submit" data-en="Subscribe">订阅</button>
-                </form>
-                <p id="plugin-source-status" class="plugin-source-status" role="status"></p>
-                <ul id="plugin-source-list" class="plugin-source-list"></ul>
-              </section>
-            </div>
-                </section>
-              </div>
-            </div>
-          </div>
-        </section>
       </main>
         <dialog id="studio-mode-overflow" aria-labelledby="studio-mode-overflow-title" aria-describedby="studio-mode-overflow-summary">
           <form method="dialog">
@@ -865,22 +540,6 @@
         </button>
       </div>
     </dialog>
-    <dialog id="prompt-patch-review" class="meeting-report-dialog prompt-patch-review" aria-labelledby="prompt-patch-title">
-      <div class="meeting-report-shell">
-        <header class="meeting-report-header"><h2 id="prompt-patch-title" data-en="Review prompt changes">审核提示词修改</h2></header>
-        <div class="meeting-report-scroll">
-          <p id="prompt-patch-reason"></p>
-          <p id="prompt-patch-scope"></p>
-          <div id="prompt-patch-changes"></div>
-          <p class="settings-note" data-en="Restore the built-in prompt in this workspace or restore the previous wording from the preview.">需要回滚时，可从预览保留原文，或在工作区恢复内置提示词。</p>
-          <p id="prompt-patch-status" role="status"></p>
-        </div>
-        <footer class="meeting-report-footer">
-          <button id="prompt-patch-discard" type="button" class="button secondary" data-en="Reject proposal">拒绝提案</button>
-          <button id="prompt-patch-apply" type="button" class="button primary" data-en="Confirm and apply">确认应用</button>
-        </footer>
-      </div>
-    </dialog>
     <dialog id="meeting-report-dialog" class="meeting-report-dialog" aria-labelledby="meeting-report-title">
       <div class="meeting-report-frame">
         <header class="meeting-report-header">
@@ -908,22 +567,6 @@
           <a id="meeting-report-download" class="button secondary" download hidden>下载 Markdown</a>
         </footer>
       </div>
-    </dialog>
-    <dialog id="plugin-confirm-dialog" class="plugin-dialog" aria-labelledby="plugin-confirm-title">
-      <form id="plugin-confirm-form" class="plugin-dialog-frame">
-        <header class="plugin-dialog-header">
-          <h2 id="plugin-confirm-title"></h2>
-        </header>
-        <div class="plugin-dialog-body">
-          <p id="plugin-confirm-description"></p>
-          <div id="plugin-confirm-permissions"></div>
-          <p id="plugin-confirm-error" class="plugin-error" role="alert" hidden></p>
-        </div>
-        <footer class="plugin-dialog-footer">
-          <button id="plugin-confirm-cancel" class="button secondary" type="button">取消</button>
-          <button id="plugin-confirm-submit" class="button primary" type="submit"></button>
-        </footer>
-      </form>
     </dialog>
     <dialog id="plugin-tools-dialog" class="plugin-dialog plugin-tools-dialog" aria-labelledby="plugin-tools-title">
       <form id="plugin-tools-form" class="plugin-dialog-frame">

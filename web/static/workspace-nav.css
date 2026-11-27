@@ -110,10 +110,7 @@ nav[data-workspace-nav] a[aria-current="page"], nav[data-workspace-settings] a[a
 }
 #workspace-session-sidebar .history { flex: none; padding: 0; overflow: visible; }
 #workspace-session-sidebar .new-button { margin: 0 0 16px; }
-#workspace-settings-nav { display: none; }
-body.settings-mode #workspace-sidebar > .workspace-main-nav,
-body.settings-mode :is(#workspace-session-sidebar, #workspace-session-toggle, #workspace-ai-modes, #table-view) { display: none !important; }
-body.settings-mode #workspace-settings-nav {
+#workspace-settings-nav {
   display: flex; flex-direction: column; gap: 16px; min-height: 0; padding: 14px 10px; overflow: auto;
 }
 #workspace-settings-back {
@@ -190,12 +187,11 @@ body[data-workspace-surface="reader"] .titlebar > div { min-width: 0; flex: 1; }
 body[data-workspace-surface="research"] #shell,
 body[data-workspace-surface="science-tools"] .frame { display: block; min-height: 0; }
 body[data-workspace-surface="research"] #workarea { min-width: 0; width: 100%; }
-body[data-workspace-surface="studio"] .settings-layout { display: block; }
-body:is([data-workspace-surface="studio"], [data-workspace-surface="lab"]):not(.settings-mode) .workspace-bar {
+body:is([data-workspace-surface="studio"], [data-workspace-surface="lab"]) .workspace-bar {
   display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
 }
-body:is([data-workspace-surface="studio"], [data-workspace-surface="lab"]):not(.settings-mode) #workspace-breadcrumb { display: none; }
-body.settings-mode .shell-rail-controls { display: none; }
+body:is([data-workspace-surface="studio"], [data-workspace-surface="lab"]) #workspace-breadcrumb { display: none; }
+body[data-workspace-surface="settings"] .shell-rail-controls { display: none; }
 #workspace-ai-modes {
   display: flex; flex: none; gap: 2px; margin: 0; padding: 2px; border-radius: var(--radius-sm);
   background: var(--bg-subtle); align-items: center;
@@ -228,7 +224,7 @@ body.settings-mode .shell-rail-controls { display: none; }
   #workspace-tools .search-open { width: 32px; height: 32px; padding: 7px; }
 }
 @media (max-width: 680px) {
-  body:is([data-workspace-surface="studio"], [data-workspace-surface="lab"]):not(.settings-mode) .workspace-history { display: none; }
+  body:is([data-workspace-surface="studio"], [data-workspace-surface="lab"]) .workspace-history { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
   .workspace-sidebar :is(a,button), .workspace-bar button { transition: background-color .12s ease, color .12s ease; }

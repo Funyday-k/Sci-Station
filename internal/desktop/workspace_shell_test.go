@@ -73,12 +73,32 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 			history := `id="lab-history"`
 			if surface.name == "studio" {
 				history = `id="studio-session-sidebar"`
-				if !strings.Contains(first, `id="settings-tab-models"`) || strings.Contains(second, `class="settings-nav"`) {
-					t.Error("settings categories must stay outside conversation navigation")
+				if strings.Contains(page, `id="settings-tab-models"`) || strings.Contains(page, `class="settings-nav"`) {
+					t.Error("studio surface must not embed settings navigation")
 				}
 			}
 			if !strings.Contains(second, history) || strings.Contains(first, history) {
 				t.Errorf("%s: conversation history must be in the second sidebar", route)
+			}
+		case "settings":
+			if sessions >= 0 {
+				t.Errorf("%s: unexpected conversation sidebar", route)
+			}
+			if !strings.Contains(page, `id="settings-tab-models"`) || !strings.Contains(page, `id="workspace-settings-back"`) {
+				t.Error("settings surface missing settings sidebar navigation")
+			}
+			if strings.Contains(page, "settings-mode") {
+				t.Error("settings surface must not use legacy settings-mode body class")
+			}
+			for _, forbidden := range []string{`src="/static/studio.js"`, `src="/static/meeting-board.js"`, `src="/static/seat-mention.js"`, `href="/static/studio.css"`} {
+				if strings.Contains(page, forbidden) {
+					t.Errorf("settings surface must not load studio asset %s", forbidden)
+				}
+			}
+			for _, required := range []string{`src="/static/settings.js"`, `href="/static/settings.css"`, `data-workspace-layout="document"`} {
+				if !strings.Contains(page, required) {
+					t.Errorf("settings surface missing %s", required)
+				}
 			}
 		default:
 			if sessions >= 0 {
@@ -98,11 +118,14 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 			t.Errorf("%s: obsolete global inspector or duplicate navigation toggle", route)
 		}
 	}
-	for _, view := range []string{"settings", "plugins"} {
-		page := navigationRequest(t, api, "GET", "/studio?view="+view, "", 200).Body.String()
-		if !strings.Contains(page, `<body class="settings-mode"`) ||
-			!strings.Contains(page, `data-en-aria-label="Conversations" hidden inert>`) {
-			t.Errorf("%s: settings mode must be active before scripts load", view)
+	for _, legacy := range []string{"/studio?view=settings", "/studio?view=plugins", "/settings?section=appearance"} {
+		page := navigationRequest(t, api, "GET", legacy, "", 200).Body.String()
+		if !strings.Contains(page, `data-workspace-surface="settings"`) ||
+			!strings.Contains(page, `src="/static/settings.js"`) ||
+			strings.Contains(page, "settings-mode") ||
+			strings.Contains(page, `src="/static/studio.js"`) ||
+			strings.Contains(page, `id="workspace-session-sidebar"`) {
+			t.Errorf("%s: expected isolated settings surface without settings-mode or studio scripts", legacy)
 		}
 	}
 	old := navigationRequest(t, api, "GET", "/static/reader.html?paper=abc", "", http.StatusTemporaryRedirect)
