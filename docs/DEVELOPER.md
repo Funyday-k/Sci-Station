@@ -41,6 +41,26 @@ The [workspace shell](../web/static/workspace-shell.html) renders navigation, th
 
 The sidebar and native Workspace menu open one AI destination. The shared switch selects single chat at `/lab` or a discussion at `/studio`. Legacy deep links still open the requested conversation. Project context comes from the route or the saved session. Switching modes prepares a scoped transfer for explicit review. Both conversation engines keep their own sessions, run controls and approvals.
 
+## Workbench layout rules
+
+UI changes and reviews apply these layout and interaction rules across all desktop surfaces:
+
+- **Three AI concepts, one entry point each:**
+  - *Ask* — quick assistance scoped to the current object (paper, note, task or meeting), opened in the context rail;
+  - *Chat* — persisted single-agent conversation session (`/lab`);
+  - *Roundtable* — multi-seat meeting (`/studio`).
+
+  In-room views such as meeting chat and discussion stances are tabs inside the room side panel, never separate global entries.
+- **Horizontal bars:** render at most two horizontal bars above the main content area (the global workspace bar plus at most one page bar), with an optional single-line status foot below content.
+- **Sidebars:** show at most one sidebar by default. Secondary sidebars (such as conversation history or an inspector) stay collapsed by default or fold into tabs / an icon rail so default sidebar chrome does not crowd the main content region.
+- **Primary actions:** place at most one primary-styled action per page. Secondary and lower-frequency actions use secondary, ghost, action-link or overflow-menu controls.
+- **Empty states:**
+  - modules with no data render as a compact row (≤ 56px tall);
+  - reserve a full empty card strictly for first-run onboarding;
+  - render at most one full empty card per screen.
+- **No first-viewport duplication:** the same record (such as an active task, paper or note) appears at most once in the first viewport.
+- **Command parity:** frontend menus and toolbars for actions that also exist in the native macOS menu dispatch the same command IDs so behavior and availability stay consistent.
+
 ## Work within the domain boundaries
 
 - Put persistence and validation in the owning service or repository. The shell coordinates navigation and dispatch, and the frontend presents state. Share one paper and PDF, with per-project state kept as an association. Use test fixtures with conflicting revisions, missing references or partially completed operations when changing state transitions.

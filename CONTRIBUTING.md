@@ -29,7 +29,7 @@ See the [developer guide](docs/DEVELOPER.md#verify-a-change) for Go race, covera
 
 - Check state and persistence in the owning domain, supported older data, unknown fields, failure paths and recovery. Use isolated roots for tests.
 - Check workspace and project scope, stale requests, and privilege when touching files, credentials, reviewed actions or direct CLI editing.
-- Verify visible behavior and accessibility where relevant, and describe changes to data compatibility in the [versioning policy](docs/VERSIONING.md).
+- Verify visible behavior, accessibility and compliance with the [workbench layout rules](docs/DEVELOPER.md#workbench-layout-rules) for UI PRs, and describe changes to data compatibility in the [versioning policy](docs/VERSIONING.md).
 - Keep credentials, private papers, research roots, local configuration and generated packages out of commits. Security fixes may cite the private advisory reference in a public PR.
 
 Contributions use the repository's [MIT license](LICENSE).
