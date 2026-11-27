@@ -38,7 +38,7 @@
   const connections=window.SciLabConnectors.mount({req,tell,resetResource,settingsChanged:(id,config)=>projectContext.updateRevision(id,config.revision),
     showPreview(value){preview=value;$("resource-text").value=value.text;$("preview-panel").hidden=false;}
   });
-  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, restoreModeDraft, skillForRun:projectContext.resolve,
+  const runs = window.SciLabRun.mount({req, tell, scopeAvailable, restoreModeDraft, restoreTemplate, skillForRun:projectContext.resolve,
     currentResource:()=>source, consumeResource:used=>{if(source===used) markSource(null);},setResource:markSource,
     form:()=>{
       const template=selectedTemplate ? presets.find(p=>p.id===selectedTemplate) : defaultTemplate();
@@ -120,6 +120,17 @@
     $("lab-template-editor").open=true;
     $("title").focus();
   }
+  function restoreTemplate(id,revision) {
+    if(!id) return;
+    const template=presets.find(item=>item.id===id && item.seats===1 && item.revision===revision);
+    if(!template) {
+      tell(text("原回答模板有变化，请重新选择。","The original answer template changed. Select a template again."));
+      return;
+    }
+    selectedTemplate=template.id;
+    if(!dirtyTemplate()) select(template);
+    renderPresets();
+  }
   async function refresh(selected){
     presets=await req(api+"presets");
     const saved=presets.find(p=>p.id===selected);
@@ -196,6 +207,13 @@
   let pendingTransfer=null, transferReview=null, transferSequence=0;
   const draftPrefix=(owner,thread)=>"sci-station.lab-mode-draft.v1:"+encodeURIComponent(owner)+":"+encodeURIComponent(thread)+":";
   const modeDraftKey=(workspace,owner,thread)=>draftPrefix(owner,thread)+encodeURIComponent(workspace);
+  async function verifyDraftCitation(owner,selection) {
+    const {kind,id,page,offset,hash,quote}=selection.citation;
+    const original=await req(api+"sources/preview","POST",{projectId:owner,location:{kind,id,page,offset}});
+    if(original.hash!==hash || !original.text.startsWith(quote)) throw Error(text(
+      "草稿中的原文已更改，请重新选择选段。","A source in the draft changed. Select the excerpt again."));
+    return {title:original.title,citation:{kind,id,page,offset,hash,quote}};
+  }
   function restoreModeDraft(owner,thread) {
     const prefix=draftPrefix(owner,thread);
     try {
@@ -205,22 +223,30 @@
       const {workspace}=await req("/api/health");
       const key=modeDraftKey(workspace,owner,thread), value=sessionStorage.getItem(key);
       if(!value) return null;
-      const {ids,resource}=JSON.parse(value);
+      const {ids,resource,citations=[],templateId="",templateRevision}=JSON.parse(value);
       if(!Array.isArray(ids) || ids.length>12 || ids.some(id=>typeof id!=="string" || !/^[a-f0-9]{32}$/.test(id))) return null;
-      const materials=ids.length ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:ids.map(id=>({id}))}) : [];
-      return {materials,resource:handoff.retainExcerpt(resource,owner),consume(){
+      if(!Array.isArray(citations) || citations.length>4) return null;
+      const [materials,selected]=await Promise.all([
+        ids.length ? checkedMaterials({sourceSessionId:thread,projectId:owner,materials:ids.map(id=>({id}))}) : [],
+        Promise.all(citations.map(citation=>verifyDraftCitation(owner,citation)))
+      ]);
+      return {materials,selected,templateId,templateRevision,resource:handoff.retainExcerpt(resource,owner),consume(){
         if(sessionStorage.getItem(key)===value) sessionStorage.removeItem(key);
       }};
     })();
   }
   async function retainModeDraft(workspace,owner,thread,materials) {
+    const {citations,importedIds}=runs.modeDraftSelections();
     if(!materials) {
-      const selected=await runs.prepareHandoff(owner);
-      materials=selected.length ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:selected}) : [];
+      materials=importedIds.length ? await checkedMaterials({sourceSessionId:thread,projectId:owner,materials:importedIds.map(id=>({id}))}) : [];
     }
     if(!scopeAvailable() || owner!==projectId() || thread!==runs.activeThread()) return false;
     const key=modeDraftKey(workspace,owner,thread), resource=handoff.retainExcerpt(source,owner);
-    if(materials.length || resource) sessionStorage.setItem(key,JSON.stringify({ids:materials.map(item=>item.id),resource}));
+    const ids=materials.filter(item=>importedIds.includes(item.id)).map(item=>item.id);
+    const template=presets.find(item=>item.id===selectedTemplate && item.seats===1);
+    if(ids.length || citations.length || resource || template) {
+      sessionStorage.setItem(key,JSON.stringify({ids,citations,resource,templateId:template?.id,templateRevision:template?.revision}));
+    }
     else sessionStorage.removeItem(key);
     return true;
   }

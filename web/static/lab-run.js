@@ -185,7 +185,7 @@
       unsaved:() => [...saved.values()].some(record => record.text !== record.confirmed)};
   }
 
-  function mount({req,tell,form,scopeAvailable,restoreModeDraft,skillForRun,currentResource,consumeResource,setResource}) {
+  function mount({req,tell,form,scopeAvailable,restoreModeDraft,restoreTemplate,skillForRun,currentResource,consumeResource,setResource}) {
     const $ = id => document.getElementById(id);
     let project = null, records = [], existingTasks=[], preview = null, selected = [], generation = 0;
     let enabledModules=null;
@@ -235,7 +235,10 @@
       const current=()=>generation===token && active===thread && restoringDraft===pending;
       void pending.then(draft=>{
         if(!draft || !current() || !scopeAvailable()) return;
+        const key=({citation})=>JSON.stringify(citation);
+        selected=[...new Map(draft.selected.concat(selected).map(item=>[key(item),item])).values()].slice(0,4);
         importedMaterials=[...new Map(importedMaterials.concat(draft.materials).map(item=>[item.id,item])).values()];
+        restoreTemplate(draft.templateId,draft.templateRevision);
         if(draft.resource && !currentResource()) setResource(draft.resource);
         displaySelected();
         draft.consume();
@@ -264,8 +267,8 @@
       $("lab-stop").hidden=!running || visibleRoom.cancel_requested;
       $("lab-start").disabled=!enabled || Boolean(restoringDraft || $("lab-start").dataset.labBusy);
       $("lab-resume").disabled=!enabled || Boolean(restoringDraft || $("lab-resume").dataset.labBusy);
-      $("lab-attach").disabled=!writable || !enabled || !project || project.global;
-      $("lab-tools").disabled=!writable || !enabled;
+      $("lab-attach").disabled=!writable || !enabled || !project || project.global || Boolean(restoringDraft);
+      $("lab-tools").disabled=!writable || !enabled || Boolean(restoringDraft);
       $("lab-draft-trigger").disabled=!writable || !project || !scopeReady;
       $("lab-model-trigger").hidden=Boolean(active);
       $("lab-readonly").hidden=Boolean(!active || !visibleRoom || writable || running);
@@ -822,6 +825,7 @@
     }
     return {selectProject,updateComposer,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
       restoringDraft:()=>Boolean(restoringDraft),
+      modeDraftSelections:()=>({citations:selected.slice(),importedIds:importedMaterials.map(item=>item.id)}),
       handoffDraftStamp:()=>JSON.stringify([active,selected.map(item=>item.citation),importedMaterials.map(item=>item.id),currentResource()]),
       saveDraft:()=>active ? replyDraft.save() : questionDraft.save(),
       prepareHandoff:async pid=>{
