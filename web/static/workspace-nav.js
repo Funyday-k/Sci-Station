@@ -33,6 +33,18 @@
     const symbol = /^[a-z0-9][a-z0-9.-]{0,79}$/i.test(project.iconName || "") ? project.iconName : "folder";
     return '<span class="project-badge" style="--project-color:' + color + '"><img alt="" src="/api/workspace/symbol/' + encodeURIComponent(symbol) + '"></span>';
   }
+  function projectBadgeNode(project) {
+    const color = /^#[0-9a-f]{6}$/i.test(project?.colorHex || "") ? project.colorHex : "#4F7CAC";
+    const symbol = /^[a-z0-9][a-z0-9.-]{0,79}$/i.test(project?.iconName || "") ? project.iconName : "folder";
+    const span = document.createElement("span");
+    span.className = "project-badge";
+    span.style?.setProperty?.("--project-color", color);
+    const img = document.createElement("img");
+    img.alt = "";
+    img.src = "/api/workspace/symbol/" + encodeURIComponent(symbol);
+    span.append(img);
+    return span;
+  }
   const icons = {home:"dashboard",projects:"folder",library:"book",calendar:"agenda",lab:"model",roundtable:"chat",settings:"settings"};
   function destinationLink({key,name,href,active}) {
     const link=document.createElement("a"), caption=document.createElement("span");
@@ -40,7 +52,8 @@
     link.dataset.section=key;
     link.setAttribute("aria-label",name);
     link.title=name;
-    link.innerHTML=window.RoundtableIcons?.icon(icons[key]) || "";
+    const svg = window.RoundtableIcons?.iconNode?.(icons[key]);
+    if (svg) link.append(svg);
     caption.className="workspace-nav-label";
     caption.textContent=name;
     link.append(caption);
@@ -278,7 +291,7 @@
     if (event.shiftKey) return "";
     return {n:"newProject",o:"openWorkspace",f:"find",s:"save",i:"inspector",",":"settings","[":"back","]":"forward",backspace:"deletePaper",delete:"deletePaper"}[key] || "";
   }
-  const nav=Object.freeze({projectNames,projectBadge,route,research,isSettings,aiAvailable,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
+  const nav=Object.freeze({projectNames,projectBadge,projectBadgeNode,route,research,isSettings,aiAvailable,aiMode,modeURL,destinations,update,commitURL,setHistoryGuard,command,keyCommand,viewModules,enabled});
   if (typeof module !== "undefined" && module.exports) module.exports = nav;
   if (typeof window !== "undefined") {
     window.SciStationNav=nav;

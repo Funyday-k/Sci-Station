@@ -15,8 +15,9 @@ function loadLibrary(ui, globals = {}) {
     document: {addEventListener() {}, createElement: () => ({})},
     ...globals
   });
-  for (const file of ["research-forms.js", "research-library.js"]) {
-    vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "web", "static", file), "utf8"), ctx);
+  const { runStaticScriptInContext } = require("./lib/esm-vm-loader.cjs");
+  for (const file of ["modules/research/entry.js", "research-library.js"]) {
+    runStaticScriptInContext(file, ctx);
   }
 }
 

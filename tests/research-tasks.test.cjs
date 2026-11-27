@@ -12,6 +12,7 @@ function researchUI() {
     if (!nodes.has(id)) nodes.set(id, {
       addEventListener() {},
       setAttribute() {},
+      replaceChildren() {},
       classList: {
         toggle() {},
         add() {},
@@ -25,7 +26,8 @@ function researchUI() {
     document: {
       getElementById: id => id === "dashboard-view" ? null : element(id),
       querySelectorAll: () => [],
-      addEventListener() {}
+      addEventListener() {},
+      createElement: tag => ({tagName: tag.toUpperCase(), dataset: {}, setAttribute() {}, append() {}})
     },
     window: {
       SciStationNav: {...navigation, update() {}},
@@ -159,8 +161,9 @@ test("task editor preserves archived project membership, multiple papers and rev
       };
     }
   });
+  const { loadESMInContext } = require("./lib/esm-vm-loader.cjs");
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../web/static/research-evidence.js"), "utf8"), context);
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, "../web/static/research-forms.js"), "utf8"), context);
+  loadESMInContext("modules/research/entry.js", context);
   await ui.formAction("edit-task", "task");
   assert.match(dialogHTML, /<blockquote>&lt;excerpt&gt;<\/blockquote>/);
   assert.match(dialogHTML, /name="taskTagNames" value="comma, kept" checked/);

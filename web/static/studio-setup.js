@@ -87,7 +87,7 @@
       if (src) { const img = make("img", "model-source-icon"); img.src = src; img.alt = ""; return img; }
       const tile = make("span", "model-source-icon neutral-model");
       tile.setAttribute("aria-hidden", "true");
-      tile.innerHTML = window.RoundtableIcons.icon("model");
+      const svg = window.RoundtableIcons?.iconNode?.("model"); if (svg) tile.replaceChildren(svg);
       return tile;
     }
     const seatingPlan = window.RoundtableSeating.mount(assetFor);
@@ -175,7 +175,7 @@
         duplicate.type = "button";
         duplicate.title = "复制席位";
         duplicate.setAttribute("aria-label", "复制 " + name + " 的席位");
-        duplicate.innerHTML = window.RoundtableIcons.icon("copy");
+        const svg = window.RoundtableIcons?.iconNode?.("copy"); if (svg) duplicate.replaceChildren(svg);
         duplicate.addEventListener("click", () => {
           members.splice(index + 1, 0, {...member, draftSeat: ++lastDraftSeat});
           selectionTouched = true;
@@ -187,7 +187,7 @@
         });
         row.append(duplicate);
         const remove = make("button", "icon-button remove-member");
-        remove.innerHTML = window.RoundtableIcons.icon("close");
+        const removeSvg = window.RoundtableIcons?.iconNode?.("close"); if (removeSvg) remove.replaceChildren(removeSvg);
         remove.type = "button"; remove.title = "移除 " + name; remove.setAttribute("aria-label", remove.title);
         remove.addEventListener("click", () => {
           selectionTouched = true; members.splice(index, 1); save(); paintMembers(members[index] || members[index - 1]); paintOptions();
@@ -359,6 +359,7 @@
       const label = make("label", "preset-card");
       const input = make("input"); input.type = "radio"; input.name = "create-preset"; input.value = id; input.id = "preset-" + id;
       const art = make("span", "preset-figure");
+      /* html-sink: static built-in preset illustration SVG from constant table */
       art.innerHTML = '<svg viewBox="0 0 90 40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + drawing + "</svg>";
       label.title = caption;
       label.append(input, art, make("strong", "", title), make("span", "sr-only", caption));

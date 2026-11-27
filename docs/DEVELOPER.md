@@ -93,6 +93,15 @@ Page and component layouts respond to their owning container's inline size (`@co
   - `999px` (`max-width: 999px`) — switch sidebars and the context rail from docked columns into overlay drawers;
   - `1000px` (`min-width: 1000px`) — dock the context rail beside `.workspace-region` and enable multi-column desktop dashboard tracks.
 
+### Native ES modules and test seams
+
+Roundtable (`studio.html`) and Research (`research.html`) load feature-split native ES modules via a single `<script type="module">` entry per page without adding a frontend build step:
+
+- `web/static/modules/studio/entry.js` imports `./dom.js`, `./diff.js`, `./settings-bridge.js`, `./setup.js`, `./room.js`, and `./composer.js`.
+- `web/static/modules/research/entry.js` imports `./dom.js`, `./wiki.js`, and `./files.js`.
+- All untrusted workspace data (paper titles, snippets, AI turn text, diffs, file paths, breadcrumbs, and search hits) is rendered via pure DOM APIs (`document.createElement`, `document.createElementNS`, `textContent`, `replaceChildren`). Every remaining HTML sink in `web/static/` carries an adjacent `/* html-sink: … */` justification comment enforced by `tests/esm-modules-and-sinks.test.cjs` and tracked by `Tools/scripts/check-frontend-metrics.py`.
+- CommonJS `node --test` suites execute native ES modules inside isolated `vm` contexts through `tests/lib/esm-vm-loader.cjs`. Do not introduce new `window.*` globals; the existing browser-shell and test seams are `window.RoundtableIdentity`, `window.RoundtableRoomPanel`, `window.SciShellMeeting`, `window.SciResearch`, `window.SciStationNav`, and `window.RoundtableIcons`.
+
 ## Work within the domain boundaries
 
 - Put persistence and validation in the owning service or repository. The shell coordinates navigation and dispatch, and the frontend presents state. Share one paper and PDF, with per-project state kept as an association. Use test fixtures with conflicting revisions, missing references or partially completed operations when changing state transitions.

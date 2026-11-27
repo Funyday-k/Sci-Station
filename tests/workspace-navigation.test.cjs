@@ -182,7 +182,7 @@ function mountResearch(start, sessions=[], intercept) {
     elements[match[1]] = {classList:{remove(){},toggle(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
   }
   elements.modal.addEventListener = (event, handler) => { listeners["modal." + event] = handler; };
-  const document = {getElementById:id=>elements[id],querySelector:()=>null,querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
+  const document = {getElementById:id=>elements[id],querySelector:()=>null,querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;},createElement:tag=>({tagName:tag.toUpperCase(),dataset:{},setAttribute(){},append(){}})};
   const location = {href:new URL(start, origin).href,origin};
   const window = Object.assign(new EventTarget(), {RoundtableIcons:{icon:()=>""}});
   window.SciStationModules = {
@@ -220,8 +220,9 @@ function mountResearch(start, sessions=[], intercept) {
   const context={window,document,location,history,fetch,URL,URLSearchParams,FormData,Event,
     localStorage:{getItem:()=>"B"},setTimeout,clearTimeout};
   const sandbox = vm.createContext(context);
-  for (const script of ["workspace-nav.js", "research.js", "research-forms.js", "research-library.js"]) {
-    vm.runInContext(read(script), sandbox);
+  const { runStaticScriptInContext } = require("./lib/esm-vm-loader.cjs");
+  for (const script of ["workspace-nav.js", "research.js", "modules/research/entry.js", "research-library.js"]) {
+    runStaticScriptInContext(script, sandbox);
   }
   return {ui:window.SciResearch,elements,calls,listeners,window,history,location};
 }

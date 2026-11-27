@@ -4,11 +4,13 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
+const { loadESMInContext } = require("./lib/esm-vm-loader.cjs");
+
 const read = name => fs.readFileSync(path.join(__dirname, "..", "web", "static", name), "utf8");
 const plain = value => JSON.parse(JSON.stringify(value));
 const one = { path: "/work/one", name: "one" };
 const two = { path: "/work/two", name: "two" };
-const studio = read("studio.js");
+const studio = read("modules/studio/entry.js");
 
 test("opening a Roundtable source replaces the anchor and keeps the history position", () => {
   const location = new URL("http://127.0.0.1:18675/studio?project=fixture&session=meeting");
@@ -28,14 +30,23 @@ test("opening a Roundtable source replaces the anchor and keeps the history posi
   const target = {id:"round-2-codex",isConnected:true,classList:{add(){}},focus(){}};
   let selectedTab = "opinions";
   let scrolled;
-  const start = studio.indexOf("    reveal(target, agenda) {");
-  const end = studio.indexOf("\n  });", start);
-  const reveal = vm.runInNewContext("({" + studio.slice(start, end) + "}).reveal", {
-    $, window, history, location, URL, state:{view:"table"},
-    openRoomTab(tab) { selectedTab = tab; },
-    requestAnimationFrame: callback=>callback(), scrollToMessage: el=>{scrolled=el;}
+  const { revealRoomTarget } = loadESMInContext("modules/studio/room.js", {
+    window,
+    location,
+    URL,
+    requestAnimationFrame: callback => callback(),
   });
-  reveal(target, false);
+  revealRoomTarget(target, false, {
+    $,
+    state: { view: "table" },
+    switchView() {},
+    compactWorkspace: false,
+    setChatVisible() {},
+    showRoomDrawer() {},
+    openRoomTab(tab) { selectedTab = tab; },
+    scrollToMessage: el => { scrolled = el; },
+    locationObj: location,
+  });
   assert.equal(location.hash, "#round-2-codex");
   assert.equal(location.search, "?project=fixture&session=meeting");
   assert.deepEqual(plain(history.state), original);

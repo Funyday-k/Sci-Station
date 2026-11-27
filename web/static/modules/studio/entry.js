@@ -1,9 +1,22 @@
-"use strict";
-(() => {
+// Native ES module entry point for Roundtable studio (#45).
+import {
+  buildHostMessageArticle,
+  buildTurnMessageArticle,
+  renderActivityBar,
+  setIcon,
+  setSeatChildrenButtonContent,
+  setTurnChildrenButtonContent,
+} from "./dom.js";
+import { renderDiffContent } from "./diff.js";
+import { syncAppearanceFromSettings as applyAppearanceSettings } from "./settings-bridge.js";
+import { modeFollowupKey, modeMaterialIDs, modeMaterialStamp } from "./setup.js";
+import { revealRoomTarget } from "./room.js";
+import { mountComposerCommands as mountStudioComposerCommands } from "./composer.js";
+
   const $ = (id) => document.getElementById(id);
   const paintTextLimit = window.RoundtableInputLimit.paint;
   const legacyNames = { codex: "Codex", cursor: "Cursor" };
-  const { icon, sourceMark: assetFor } = window.RoundtableIcons;
+  const { sourceMark: assetFor } = window.RoundtableIcons;
   function sessionMembers(session = state.session) {
     if (session?.members?.length) return session.members;
     const resolved = state.legacyRosters.get(session?.id)?.members;
@@ -104,21 +117,9 @@
     discussionChoices: new Map(),
     agendaNote: "",
   };
-  const escape = (value) =>
-    String(value ?? "").replace(
-      /[&<>"']/g,
-      (char) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        })[char],
-    );
   const detailText = (value) =>
     typeof value === "string" ? value : value ? JSON.stringify(value) : "";
-  $("dismiss-notice").innerHTML = icon("close");
+  setIcon($("dismiss-notice"), "close");
   function storageGet(key) {
     try {
       return localStorage.getItem(key);
@@ -634,7 +635,7 @@
         String(state.menuSession === session.id),
       );
       more.title = "更多操作";
-      more.innerHTML = icon("more");
+      setIcon(more, "more");
       more.addEventListener("click", (event) => {
         event.stopPropagation();
         openHistoryMenu(session.id, { opener: more });
@@ -772,11 +773,8 @@
     renderHistory();
   }
   function syncAppearanceFromSettings() {
-    const settings = state.settings;
-    if (!settings) return;
-    appearance?.setMode(settings.appearance || "system", true);
-    appearance?.setColorTheme(settings.color_theme || "iris", true);
-    appearance?.setTextSize(settings.text_size || "standard", true);
+    if (!state.settings) return;
+    applyAppearanceSettings(appearance, state.settings);
     renderSeats();
     updateControls();
   }
@@ -863,7 +861,7 @@
           else {
             node.classList.add("neutral-model");
             node.setAttribute("aria-hidden", "true");
-            node.innerHTML = icon("model");
+            setIcon(node, "model");
           }
           return node;
         };
@@ -935,7 +933,7 @@
       if (state.seatKeys[id] !== key) {
         state.seatKeys[id] = key;
         const button = $(`children-open-${id}-all`);
-        button.innerHTML = `${icon("subagent")}<span>子代理${tasks.length ? ` ${tasks.length}` : ""}</span>`;
+        setSeatChildrenButtonContent(button, tasks.length);
         button.dataset.childEntryState = summary?.state || (tasks.length ? "complete" : "empty");
         button.setAttribute("aria-label", `${seatName(id)} 的子代理${summary?.label ? `，${summary.label}` : ""}`);
         button.title = summary?.label || "查看该席位的子代理";
@@ -1018,27 +1016,15 @@
       opener,
     });
   }
-  function memberAvatar({asset:src, model}) {
-    const content = src ? `<img src="${src}" alt="">` : icon("model");
-    return `<span class="message-avatar${src ? "" : " neutral-model"}" aria-hidden="true" title="${escape(model)}">${content}</span>`;
-  }
-  function messageTime(value) {
-    if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    return `<time class="message-time" datetime="${escape(value)}" title="${escape(date.toLocaleString("zh-CN"))}">${escape(date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }))}</time>`;
-  }
   function renderMessageBody(article, source, cache) {
     window.SciMarkdown.render(article.querySelector(".message-body"), source, {headingShift:3, cache});
     article.querySelector(".message-header").append(window.SciMarkdown.copyButton(source));
   }
   function hostMessage(text, at, target = "", round = 0, automatic = false) {
-    const article = document.createElement("article");
-    article.className = "message host-message";
-    if (round) article.id = `round-${round}-host`;
     const recipient = target && (round ? sourceIdentity(target, state.session, round).label : seatName(target));
     const label = automatic ? "持续推进 · 下一轮任务" : recipient ? `→ ${recipient}` : "";
-    article.innerHTML = `<span class="message-avatar" aria-hidden="true">${icon(automatic ? "refresh" : "person")}</span><div class="message-content"><header class="message-header">${label ? `<strong>${escape(label)}</strong>` : ""}${messageTime(at)}</header><div class="message-body"></div></div>`;
+    const article = buildHostMessageArticle({ label, at, automatic });
+    if (round) article.id = `round-${round}-host`;
     renderMessageBody(article, text, true);
     return article;
   }
@@ -1142,20 +1128,19 @@
             : a.index - b.index;
         });
       for (const { turn } of turns) {
-        const article = document.createElement("article");
-        article.className = "message agent-message";
-        article.id = `round-${round.number}-${turn.seat}`;
         const speaker = turnIdentity(turn, session, round);
         const showModel = speaker.model && speaker.model !== speaker.label;
-        article.dataset.speakerModel = speaker.model;
-        article.dataset.speakerEffort = speaker.effort;
         const progress =
           turn.status === "running"
             ? "正在工作…"
             : turn.status === "error"
               ? "未完成"
               : "";
-        article.innerHTML = `${memberAvatar(speaker)}<div class="message-content"><header class="message-header"><strong>${escape(speaker.label)}${showModel ? ` · ${escape(speaker.model)}` : ""}</strong>${messageTime(turn.finished_at || turn.started_at)}${progress ? `<span class="message-status ${turn.status === "error" ? "error" : ""}">${progress}</span>` : ""}</header>${turn.text ? `<div class="message-body"></div>` : turn.status === "error" ? "" : `<div class="message-body"><p class="message-placeholder">${turn.status === "pending" ? "等待回应…" : turn.status === "running" ? "正在处理任务…" : "没有返回发言。"}</p></div>`}</div>`;
+        const article = buildTurnMessageArticle({ speaker, showModel, turn, progress });
+        article.className = "message agent-message";
+        article.id = `round-${round.number}-${turn.seat}`;
+        article.dataset.speakerModel = speaker.model;
+        article.dataset.speakerEffort = speaker.effort;
         if (turn.text) renderMessageBody(article, turn.text, turn.status !== "running");
         const events = (session.events || []).filter(
           (event) =>
@@ -1171,7 +1156,7 @@
           const button = document.createElement("button");
           button.type = "button";
           button.className = "button secondary small child-entry";
-          button.innerHTML = `${icon("subagent")}子代理 ${children.length}`;
+          setTurnChildrenButtonContent(button, children.length);
           button.id = `children-open-${turn.seat}-${round.number}`;
           const childSummary = window.RoundtableChildren?.summary(children);
           button.setAttribute("aria-controls", "children-panel");
@@ -1602,9 +1587,7 @@
     const event = session.events?.at(-1);
     $("activity-bar").hidden = true;
     if (event) {
-      const activity = activityEvent(event);
-      $("activity-bar").innerHTML =
-        `<strong>${escape(activity.owner)}</strong><span>${escape(activity.text)}</span>`;
+      renderActivityBar($("activity-bar"), activityEvent(event));
     }
     const index = state.sessions.findIndex((item) => item.id === session.id);
     const summary = {
@@ -2334,43 +2317,7 @@
           record.change.path,
         ),
     );
-    let oldLines = 0,
-      newLines = 0;
-    $("diff-content").innerHTML = record.diff
-      ? record.diff
-          .split("\n")
-          .map((line) => {
-            let kind = "";
-            const hunk = line.match(
-              /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/,
-            );
-            if (hunk) {
-              oldLines = hunk[2] === undefined ? 1 : Number(hunk[2]);
-              newLines = hunk[4] === undefined ? 1 : Number(hunk[4]);
-              kind = "diff-header";
-            } else if (oldLines > 0 || newLines > 0) {
-              if (line.startsWith("+")) {
-                kind = "diff-add";
-                newLines--;
-              } else if (line.startsWith("-")) {
-                kind = "diff-remove";
-                oldLines--;
-              } else if (line.startsWith(" ")) {
-                oldLines--;
-                newLines--;
-              } else if (line.startsWith("\\")) kind = "diff-header";
-            } else if (
-              line.startsWith("+++") ||
-              line.startsWith("---") ||
-              line.startsWith("\\ No newline")
-            )
-              kind = "diff-header";
-            return `<span class="${kind}">${escape(line)}\n</span>`;
-          })
-          .join("")
-      : record.loading
-        ? "补丁读取中…"
-        : "暂无可显示的补丁。";
+    renderDiffContent($("diff-content"), record);
     const { change } = record;
     const missingVersions = !change.before || !change.after;
     const missingPatch = !record.loading && !record.diff && (missingVersions || change.before !== change.after);
@@ -2774,11 +2721,8 @@
     }
   });
   const modeTransfer = window.SciStudioModeTransfer;
-  const modeFollowupKey = id => "sci-station.roundtable-followup.v1."+id;
   const conversationGeneration = id => projects.available().find(project=>project.id===id)?.conversationGeneration || 0;
   const modeText = (zh, en) => window.SciStationI18n?.text(zh,en) ?? zh;
-  const modeMaterialIDs = materials => materials.map(({id}) => id);
-  const modeMaterialStamp = materials => JSON.stringify(modeMaterialIDs(materials));
   let switchingToSingle = false;
   async function modeWorkspace() {
     const response = await fetch("/api/health", {cache:"no-store"});
@@ -3044,26 +2988,15 @@
       }
     },
     reveal(target, agenda) {
-      if (state.view !== "table") switchView("table");
-      if (agenda) {
-        if (compactWorkspace) setChatVisible(false);
-        showRoomDrawer("agenda-toggle");
-      } else {
-        openRoomTab("chat");
-      }
-      requestAnimationFrame(() => {
-        if (!target.isConnected) return;
-        if (agenda) target.scrollIntoView({ block: "nearest" });
-        else {
-          const url = new URL(location.href);
-          url.hash = target.id;
-          window.SciStationNav.commitURL(url, "replace");
-          scrollToMessage(target);
-          $("latest-message").hidden = false;
-        }
-        target.tabIndex = -1;
-        target.classList.add("meeting-source-focus");
-        target.focus({ preventScroll: true });
+      revealRoomTarget(target, agenda, {
+        $,
+        state,
+        switchView,
+        compactWorkspace,
+        setChatVisible,
+        showRoomDrawer,
+        openRoomTab,
+        scrollToMessage,
       });
     },
   });
@@ -3170,36 +3103,15 @@
   });
   const continuousUI = window.RoundtableContinuous.mount("run", {onToggle() { updateControls(); seatMention.updateStatus(); }});
   function mountComposerCommands(prefix, root, materials, mention, mentionsAvailable, otherCommands) {
-    const continuousToggle = $(prefix + "-continuous-enabled");
-    const runComposer = prefix === "run";
-    return window.RoundtableCommands.mount({
+    return mountStudioComposerCommands({
+      prefix,
       root,
-      button: $(prefix + "-commands"),
-      commands: () => [
-        { label: "添加图片", group: "材料", icon: "image", run: () => materials.pick("image") },
-        { label: "添加文件", group: "材料", icon: "file", run: () => materials.pick("file") },
-        {
-          label: runComposer ? "@ 点名席位" : "@ 指定首席起草议程",
-          group: "讨论", icon: "mention", disabled: !mentionsAvailable(),
-          run: () => mention.open(),
-        },
-        ...otherCommands,
-        {
-          label: continuousToggle.checked ? "关闭持续推进" : "开启持续推进",
-          group: "推进", icon: "continue", disabled: continuousToggle.disabled,
-          run: () => continuousToggle.click(),
-        },
-        {
-          label: "持续推进设置", group: "推进", icon: "sliders",
-          disabled: !continuousToggle.checked || continuousToggle.disabled,
-          run() {
-            $(prefix + "-continuous-options").querySelector("details").open = true;
-            const input = $(prefix + "-continuous-goal");
-            if (runComposer) meetingActions.openSettings(input);
-            else input.focus();
-          },
-        },
-      ],
+      materials,
+      mention,
+      mentionsAvailable,
+      otherCommands,
+      meetingActions,
+      $,
     });
   }
   const createCommands = mountComposerCommands("create", $("create-composer"), createMaterials, topicMention,
@@ -3227,4 +3139,3 @@
   $("draft-retry-projects").addEventListener("click", boot);
   $("retry-connect").addEventListener("click", boot);
   boot();
-})();

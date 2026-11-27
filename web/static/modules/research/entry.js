@@ -1,5 +1,14 @@
-"use strict";
-(() => {
+// Native ES module entry point for research workspace forms (#45).
+import { renderTaskTagChip } from "./dom.js";
+import {
+  appendSnippetOptions,
+  renderBacklinks,
+  renderNoteConflict,
+  renderSnippetConflict,
+  renderWikiMetadata,
+} from "./wiki.js";
+import { renderFilePreview, renderProjectFilesList } from "./files.js";
+
   const E = window.SciResearch;
   const wikiEditor = window.SciWikiEditor;
   const {
@@ -682,7 +691,7 @@
       const settings = await request("wiki/snippets");
       if (!tools.isConnected) return;
       available = settings.snippets || [];
-      snippets.innerHTML += available.map(item => option(item.trigger, item.trigger + " · " + item.title, "")).join("");
+      appendSnippetOptions(snippets, available);
       snippets.disabled = available.length === 0;
       if (settings.parseError) status.textContent = "自定义设置有误，已加载内置片段";
     } catch (err) {
@@ -691,17 +700,7 @@
   }
 
   function showNoteConflict(host, latest, useRevision) {
-    host.hidden = false;
-    host.innerHTML = '<details open><summary>对照已保存版本（修订 ' + esc(latest.revision) + '）</summary>' +
-      '<p>' + esc(wikiPath(latest)) + '</p><p>别名：' + esc(latest.aliases?.join(" · ") || "无") +
-      '　标签：' + esc(latest.tags?.join(" · ") || "无") + '</p>' +
-      field("已保存正文", area("savedBody", latest.body, 'aria-label="已保存正文" readonly')) + '</details>' +
-      '<button class="button" type="button">保留草稿并使用此修订</button>';
-    host.querySelector("button").onclick = () => {
-      useRevision();
-      host.textContent = "已采用查看到的修订。保存时将应用当前草稿。";
-    };
-    host.querySelector("summary").focus();
+    renderNoteConflict(host, latest, wikiPath(latest), useRevision);
   }
 
   function reviewedEvidence(entries, owner) {
@@ -785,16 +784,14 @@
       renderWikiMarkdown(preview, body, links.value);
     } else status.textContent = "页面链接读取失败：" + links.reason.message;
     if (refs.status === "fulfilled") {
-      if (refs.value?.length) backlinks.innerHTML = '<div class="subheading">链接到此页面</div>' +
-        refs.value.map(ref => button(wikiPath(ref), "read-note", {id: ref.id, kind: "bare"})).join("");
+      if (refs.value?.length) renderBacklinks(backlinks, refs.value, wikiPath);
     } else backlinks.textContent = "反向链接读取失败：" + refs.reason.message;
   };
 
   async function showWikiMetadata(path, host) {
     try {
       const entries = await request(path);
-      if (host.isConnected && entries.length) host.innerHTML = '<dl>' + entries.map(entry =>
-        '<dt>' + esc(entry.key) + '</dt><dd><pre>' + esc(entry.value) + '</pre></dd>').join("") + '</dl>';
+      renderWikiMetadata(host, entries);
     } catch (err) {
       if (host.isConnected) host.textContent = err.message;
     }
@@ -902,15 +899,9 @@
         if (err.status === 409) {
           try {
             const latest = await request(endpoint);
-            conflict.innerHTML = '<details open><summary>对照已保存片段</summary>' +
-              field("已保存片段", area("savedSnippets", latest.content, 'aria-label="已保存片段" readonly')) +
-              '</details><button type="button" class="button">保留草稿并使用此修订</button>';
-            conflict.hidden = false;
-            conflict.querySelector("button").onclick = () => {
+            renderSnippetConflict(conflict, latest.content, () => {
               current = latest;
-              conflict.textContent = "已采用查看到的修订。保存时将应用当前草稿。";
-            };
-            conflict.querySelector("summary").focus();
+            });
           } catch { /* Preserve the draft even if the newer snippet file cannot be loaded. */ }
         }
         throw err;
@@ -986,8 +977,8 @@
     form.querySelector("[data-status]").textContent = message;
     const showPreview = () => {
       const title = value(form, "tagName") || copy("预览", "Preview");
-      form.querySelector("[data-task-tag-preview]").innerHTML =
-        E.taskTagChip(title, {color: value(form, "color"), textColor: value(form, "textColor")});
+      const colors = E.taskTagColors(title, {color: value(form, "color"), textColor: value(form, "textColor")});
+      renderTaskTagChip(form.querySelector("[data-task-tag-preview]"), title, colors);
     };
     showPreview();
     form.addEventListener("input", showPreview);
@@ -1113,10 +1104,8 @@
       });
     if (excerpt) return;
     const el = $("file-display");
-    if (img) el.innerHTML = '<img class="file-preview" src="' + esc(url) + '" alt="' + esc(m.name) + '">';
-    else if (pdf) {
-      el.innerHTML = '<iframe class="file-preview" title="PDF 文件预览" src="' + esc(url) + '"></iframe>';
-    } else if (isText) {
+    if (renderFilePreview(el, { img, pdf, url, name: m.name })) return;
+    else if (isText) {
       if (m.size > 2 * 1024 * 1024) {
         el.textContent = "文件较大，可下载后查看。";
         return;
@@ -1191,12 +1180,7 @@
     try {
       const files = await request(base);
       if (!box.isConnected) return;
-      box.outerHTML = '<p class="form-help">' + esc(state.project.path) + '</p>' + button("新建文本文件", "new-project-file", {
-        glyph: "plus"
-      }) + '<div class="list">' + (files.length ? files.map(path => button(path, "open-project-file", {
-        id: path,
-        kind: "search-result"
-      })).join("") : empty("目录中暂无可编辑文件")) + '</div>';
+      renderProjectFilesList(box, { projectPath: state.project.path, files });
     } catch (err) {
       if (box.isConnected) box.textContent = err.message;
     }
@@ -1425,4 +1409,3 @@
       if (m) return action === "read-material" ? readMaterial(m) : materialForm(m);
     }
   };
-})();

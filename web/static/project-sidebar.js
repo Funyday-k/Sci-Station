@@ -24,7 +24,7 @@
   }, {root:document.querySelector(".workspace-sidebar-scroll"),rootMargin:"300px"});
   function button(glyph,label) {
     const node=document.createElement("button");
-    node.type="button";node.innerHTML=icon(glyph);node.title=label;node.setAttribute("aria-label",label);
+    node.type="button";const svg=window.RoundtableIcons?.iconNode?.(glyph);if(svg)node.append(svg);node.title=label;node.setAttribute("aria-label",label);
     return node;
   }
   function activeTab(url) {
@@ -63,7 +63,7 @@
       if(hasOverview)keys.unshift("overview");
       group.replaceChildren(...keys.map(key=>{
         const a=document.createElement("a"), caption=document.createElement("span");
-        a.dataset.tabKey=key;a.href=moduleURL(key,id);a.innerHTML=icon(glyphs[key]);caption.textContent=labels[key];a.append(caption);
+        a.dataset.tabKey=key;a.href=moduleURL(key,id);const svg=window.RoundtableIcons?.iconNode?.(glyphs[key]);if(svg)a.append(svg);caption.textContent=labels[key];a.append(caption);
         if(id===url.searchParams.get("project")){
           if(key===activeTab(url))a.setAttribute("aria-current","page");
           if(url.pathname==="/research" && key!=="calendar" && key!=="lab" && key!=="recommendations")a.dataset.view=key;
@@ -104,7 +104,7 @@
       fold.className="project-fold";fold.dataset.rowPart="fold";fold.setAttribute("aria-expanded",String(!collapsed));
       fold.onclick=()=>changeFold(id,!collapsed,"fold").catch(()=>{});
       link.href=nav.research("overview",id);link.dataset.project=id;link.dataset.rowPart="link";link.className="project-item";
-      link.innerHTML=nav.projectBadge(project);label.textContent=project.name;link.append(label);link.title=project.name;
+      link.replaceChildren(nav.projectBadgeNode(project),label);label.textContent=project.name;link.title=project.name;
       if(current){link.classList.add("active");link.setAttribute("aria-current","true");}
       const pinned=state.pinnedProjects.includes(id);
       row.classList.toggle("pinned",pinned);

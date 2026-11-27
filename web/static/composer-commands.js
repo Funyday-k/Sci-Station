@@ -24,7 +24,7 @@
     button.setAttribute("aria-expanded", "false");
     if (!button.hasAttribute("aria-label") && !button.getAttribute("title")) button.setAttribute("aria-label", "输入工具");
     if (!button.querySelector("svg") && !button.textContent.trim()) {
-      button.innerHTML = icon("plus");
+      const plus = window.RoundtableIcons?.iconNode?.("plus"); if (plus) button.replaceChildren(plus);
     }
 
     let open = false;
@@ -73,7 +73,7 @@
         row.setAttribute("role", "menuitem");
         row.disabled = Boolean(item.disabled);
         row.dataset.commandIndex = String(index);
-        row.innerHTML = `<span class="roundtable-commands-icon" aria-hidden="true">${icon(item.icon)}</span>`;
+        const iconWrap = document.createElement("span"); iconWrap.className = "roundtable-commands-icon"; iconWrap.setAttribute("aria-hidden", "true"); const svg = window.RoundtableIcons?.iconNode?.(item.icon); if (svg) iconWrap.append(svg); row.append(iconWrap);
         const label = document.createElement("span");
         label.className = "roundtable-commands-label";
         label.textContent = String(item.label ?? "");

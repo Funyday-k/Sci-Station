@@ -68,7 +68,7 @@ function mount() {
   for (const match of staticFile("research.html").matchAll(/\bid="([^"]+)"/g)) {
     elements[match[1]] = {classList:{remove(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
   }
-  const document = {getElementById:id=>elements[id],querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
+  const document = {getElementById:id=>elements[id],querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;},createElement:tag=>({tagName:tag.toUpperCase(),dataset:{},setAttribute(){},append(){}})};
   const location = {href:base + "/research?project=A&view=graph", origin:base};
   const history = {replaceState:(_s,_t,url)=>{location.href=new URL(url,base).href;}};
   const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){},commitURL(url){history.replaceState(null,"",url);}},SciResearchGraph:graph};
@@ -90,8 +90,9 @@ function mount() {
   }
   const sandbox = vm.createContext({window,document,location,history,fetch,URL,URLSearchParams,FormData,setTimeout,clearTimeout,
     localStorage:{getItem:()=>null}});
-  for (const script of ["research.js", "research-forms.js", "research-library.js"]) {
-    vm.runInContext(staticFile(script), sandbox);
+  const { runStaticScriptInContext } = require("./lib/esm-vm-loader.cjs");
+  for (const script of ["research.js", "modules/research/entry.js", "research-library.js"]) {
+    runStaticScriptInContext(script, sandbox);
   }
   return {ui:window.SciResearch,elements,calls,listeners,resolveQuery:data=>resolveQuery(Response.json(data)),
     rejectQuery:error=>rejectQuery(error),resolveWorkflow:data=>resolveWorkflow(Response.json(data))};

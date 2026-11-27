@@ -145,6 +145,7 @@
     modalCleanup = cleanup;
     modalCanDismiss = canDismiss;
     $("dialog-title").textContent = title;
+    /* html-sink: callers construct dialog markup using internal esc()/button()/field() builders. */
     $("dialog-content").innerHTML = html;
     $("modal").classList.toggle("wide", wide);
     if (!$("modal").open) $("modal").showModal();
@@ -332,8 +333,25 @@
     navigation.update();
     window.SciProjectSidebar?.setProjects(state.projects, state.project?.id, state.modules);
     const title = state.view === "overview" && !state.project ? local("routeHome", "首页", "Home") : names[state.view];
-    $("crumb").innerHTML = (state.project ? '<a href="' + esc(viewURL("projects", null)) + '">' + esc(names.projects) + '</a><span>/</span><a href="' +
-      esc(viewURL("overview")) + '">' + esc(state.project.name) + '</a><span>/</span>' : "") + '<strong>' + esc(title) + '</strong>';
+    const crumb = $("crumb");
+    const crumbNodes = [];
+    if (state.project) {
+      const projectsLink = document.createElement("a");
+      projectsLink.href = viewURL("projects", null);
+      projectsLink.textContent = names.projects;
+      const sep1 = document.createElement("span");
+      sep1.textContent = "/";
+      const projectLink = document.createElement("a");
+      projectLink.href = viewURL("overview");
+      projectLink.textContent = state.project.name;
+      const sep2 = document.createElement("span");
+      sep2.textContent = "/";
+      crumbNodes.push(projectsLink, sep1, projectLink, sep2);
+    }
+    const currentTitle = document.createElement("strong");
+    currentTitle.textContent = title;
+    crumbNodes.push(currentTitle);
+    crumb.replaceChildren(...crumbNodes);
     document.title = title + " · Sci-Station";
   }
 
@@ -483,6 +501,7 @@
     updateNav();
     let out = "";
     if (state.loadError) {
+      /* html-sink: error view is assembled exclusively via internal esc()/heading()/panel()/empty() builders. */
       $("main").innerHTML = heading(text("页面加载失败", "Could not load view"), failedLoad?.label) +
         panel(text("本机服务", "Local service"), '<div role="alert">' +
           empty(state.loadError, "", button(local("homeRetry", "重试", "Retry"), "reload") +
@@ -540,6 +559,7 @@
           .map(m => row("file", m.name, bytes(m.size) + " · " + fmtDate(m.updatedAt), rowAction("read-material", m.id)))
           ) : empty("暂无材料", "在这里保存与项目相关的图表、数据、代码或补充文件。"));
     } else if (state.view === "graph") out = graphView();
+    /* html-sink: all view templates escape untrusted workspace data through esc() before injection. */
     $("main").innerHTML = out;
     window.SciContextRail?.update();
     const dashboardRoot = $("dashboard-view");
@@ -842,22 +862,44 @@
         [state.tasks, "任务", "task"],
         [state.materials, "材料", "material"]
       ];
+      const actions = { note: "read-note", task: "edit-task", material: "read-material" };
       const hits = [];
       for (const [items, label, kind] of groups)
         for (const x of items) {
+          if (hits.length >= 40) break;
           const title = x.title || x.name;
-          const text = [title, x.body, x.description, x.abstract, x.doi, x.citekey, ...(x.authors || []), ...(x.tags || [])]
+          const hay = [title, x.body, x.description, x.abstract, x.doi, x.citekey, ...(x.authors || []), ...(x.tags || [])]
             .join(" ").toLowerCase();
-          if (!text.includes(query)) continue;
-          const content = '<span class="title">' + esc(title) + '</span><span class="meta">' + label + '</span>';
-          hits.push(kind === "paper" ? '<a class="search-result" href="' + esc(reader(x.id)) + '">' + content + '</a>' :
-            '<button class="search-result" data-action="' + ({
-              note: "read-note",
-              task: "edit-task",
-              material: "read-material"
-            })[kind] + '" data-id="' + esc(x.id) + '">' + content + '</button>');
+          if (!hay.includes(query)) continue;
+          const item = document.createElement(kind === "paper" ? "a" : "button");
+          item.className = "search-result";
+          if (kind === "paper") {
+            item.href = reader(x.id);
+          } else {
+            item.type = "button";
+            item.dataset.action = actions[kind];
+            item.dataset.id = String(x.id ?? "");
+          }
+          const titleSpan = document.createElement("span");
+          titleSpan.className = "title";
+          titleSpan.textContent = String(title ?? "");
+          const metaSpan = document.createElement("span");
+          metaSpan.className = "meta";
+          metaSpan.textContent = label;
+          item.append(titleSpan, metaSpan);
+          hits.push(item);
         }
-      $("search-results").innerHTML = hits.slice(0, 40).join("") || empty("没有找到匹配内容");
+      const resultsEl = $("search-results");
+      if (hits.length) {
+        resultsEl.replaceChildren(...hits);
+      } else {
+        const emptyEl = document.createElement("div");
+        emptyEl.className = "empty";
+        const headingEl = document.createElement("h3");
+        headingEl.textContent = "没有找到匹配内容";
+        emptyEl.append(headingEl);
+        resultsEl.replaceChildren(emptyEl);
+      }
     }
     input.addEventListener("input", update);
     update();
@@ -1052,6 +1094,7 @@
     if (event.isComposing || state.loading || state.loadError) return;
     if (input.id === "wiki-query" && state.wikiQuery !== input.value) {
       state.wikiQuery = input.value;
+      /* html-sink: wikiResults() escapes all page titles/paths through esc(). */
       $("wiki-results").innerHTML = wikiResults();
       return;
     }
@@ -1059,8 +1102,10 @@
     state.query = input.value;
     const projectID = state.project?.id || "";
     const papers = E.library.filterPapers(orderedLibraryPapers(projectID), projectID);
+    /* html-sink: libraryResults() escapes all paper titles/metadata through esc(). */
     $("paper-results").innerHTML = libraryResults(papers, projectID);
     $("library-export-action").hidden = papers.length === 0;
+    /* html-sink: exportButton() renders static localized action buttons via button(). */
     $("library-export-action").innerHTML = papers.length ? E.library.exportButton(papers) : "";
     window.SciContextRail?.update();
   }
@@ -1122,5 +1167,9 @@
   window.addEventListener("pageshow", ev => {
     if (ev.persisted) route();
   });
-  for (const el of document.querySelectorAll("[data-icon]")) el.innerHTML = icon(el.dataset.icon);
+  for (const el of document.querySelectorAll("[data-icon]")) {
+    const svg = window.RoundtableIcons?.iconNode?.(el.dataset.icon);
+    if (svg) el.replaceChildren(svg);
+    else el.replaceChildren();
+  }
 })();

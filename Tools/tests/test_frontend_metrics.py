@@ -333,6 +333,15 @@ box["innerHTML"] = `${target.innerHTML = "nested"}`;
         details = [occ.detail for occ in report.base_control_rules_outside_components]
         self.assertEqual(details, ["input[type='text']", "button:disabled"])
 
+    def test_nested_es_modules_scanned_and_vendor_ignored(self) -> None:
+        self.write("web/static/modules/studio/dom.js", "export function render(el, html) { el.innerHTML = html; }\n")
+        self.write("web/static/research-vendor/vendor.js", "el.innerHTML = 'ignored';\n")
+        report = metrics.collect_metrics(self.root, ["tokens.css"], ["components.css"])
+        self.assertEqual(
+            [(occ.path, occ.line) for occ in report.html_sinks],
+            [("web/static/modules/studio/dom.js", 1)],
+        )
+
     def test_repository_baseline_and_ci_wiring_are_intact(self) -> None:
         report, failures, _improvements, _allowlist = metrics.check_metrics(ROOT)
         self.assertEqual(failures, [], metrics.format_failures(failures))

@@ -10,7 +10,8 @@
   function preview(){
     const colorHex=field("colorHex").value,iconName=field("iconName").value;
     const target=find("[data-preview]"),name=document.createElement("strong");
-    target.innerHTML=nav.projectBadge({colorHex,iconName});
+    const badge = nav.projectBadgeNode({colorHex,iconName});
+    target.replaceChildren(badge);
     name.textContent=field("name").value || text("项目预览","Project preview");target.append(name);
     for(const button of dialog.querySelectorAll("[data-color],[data-symbol]")){
       button.setAttribute("aria-pressed",String(button.dataset.color===colorHex || button.dataset.symbol===iconName));

@@ -65,6 +65,7 @@
         return files.length ? '<h3>' + label + '</h3><div class="list">' +
           files.map(file => button(file.path, "preview-linked-material", {id: file.path, kind: "search-result"})).join("") + '</div>' : "";
       }).join("");
+      /* html-sink: all dynamic file paths and labels are HTML-escaped via button()/empty()/controls(). */
       box.outerHTML = '<div class="actions">' + controls(null) +
         button("浏览及编辑项目文本", "project-files") + button("刷新目录", "linked-materials") +
         '</div>' + statusLine() + (rows || empty("四个材料目录中暂无文件", "将代码、数据、图表和输出放入项目的 code、data、figures 或 outputs 目录。"));

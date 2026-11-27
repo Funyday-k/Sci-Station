@@ -121,6 +121,7 @@
     });
 
     // Work in a template before adding anything to the active document.
+    // html-sink: DOMPurify-sanitized Markdown HTML (safe profiles + forbidden tags/attrs).
     const template = document.createElement("template");
     template.innerHTML = window.DOMPurify.sanitize(parser.parse(source), {
       USE_PROFILES:{html:true},
