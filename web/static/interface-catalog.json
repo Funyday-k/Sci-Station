@@ -151,6 +151,7 @@
   "readerRegionHelp": {"en": "Select a figure or equation and add a note", "zh-Hans": "框选图表或公式并附上便签"},
   "readerSelectedPassage": {"en": "Selected passage", "zh-Hans": "当前选段"},
   "readerSendSelection": {"en": "Discuss selection", "zh-Hans": "选段入会"},
+  "readerMore": {"en": "More", "zh-Hans": "更多"},
   "readerSendTitle": {"en": "Discuss selection in Roundtable", "zh-Hans": "带选段进入圆桌"},
   "readerTargetMeeting": {"en": "Destination meeting", "zh-Hans": "目标会议"},
   "readerEnterTable": {"en": "Open Roundtable", "zh-Hans": "进入圆桌"},

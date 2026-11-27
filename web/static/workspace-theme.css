@@ -33,6 +33,8 @@
   --workspace-diff-remove-ink: light-dark(#881337, #fecdd3);
   --workspace-diff-remove-bg: light-dark(#fdecef, #421923);
   --workspace-diff-remove-gutter: light-dark(#be123c, #fda4af);
+  --workspace-warning-bg: light-dark(#fef3c7, #3b2d12);
+  --workspace-warning-ink: light-dark(#5c3a00, #fde68a);
   --workspace-shadow: 0 4px 20px light-dark(#20242b0d, #00000033);
   --workspace-page-top: 24px;
   --workspace-page-inset: clamp(16px, 3vw, 32px);
