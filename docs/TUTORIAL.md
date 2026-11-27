@@ -2,9 +2,9 @@
 
 [中文教程](TUTORIAL.zh-CN.md)
 
-## Open a workspace and create a project
+## Create your first project
 
-On an Apple Silicon Mac with macOS 15 or later, install Go 1.26 and Xcode Command Line Tools. Run `make run` from the repository root. The app opens its macOS desktop window. Use **Workspace → Create Workspace**, select an empty folder, and give your first project a name under **Projects → New Project**. Open the same folder with **Workspace → Open Workspace** to continue on another launch.
+On an Apple Silicon Mac with macOS 15 or later, install Go 1.26 and Xcode Command Line Tools. Run `make run` from the repository root. Choose **Projects → New Project** to create your first project. A fresh installation stores shared data and papers in your user Application Support directory. Existing installations reopen their saved data location. Open data storage in Settings to see the path or choose another library.
 
 When moving from a previously published app or the Go prototype, keep your original data and make a verified copy where applicable. The [workspace and recovery guide](workspaces.md) describes how each source is handled.
 
@@ -14,7 +14,7 @@ The sidebar holds Home, Projects, Library, Calendar and AI. Use the arrow beside
 
 Selecting papers prepares bulk actions without opening a panel. Use an item's **View details** icon when you need its properties, or **Annotations and notes** in the reader. The top-bar chat icon opens AI. Closing a panel returns focus to its entry point; pinning keeps it open across views and restarts. Icons have accessible names and hover labels.
 
-Use **Settings → Appearance** to choose light or dark mode, text size and an accent. Backgrounds, navigation and ordinary buttons use neutral colors, while primary actions and selected controls use the accent. **Edit layout** on Home or a project overview controls which cards appear.
+Use **Settings → Appearance** to choose light or dark mode, text size and an accent. Backgrounds, navigation and ordinary buttons use neutral colors, while primary actions and selected controls use the accent. Cards on Home and project overviews align to a common grid. Use **Edit layout** to change their order, size and visibility.
 
 ## Import and cite a paper
 
@@ -36,12 +36,12 @@ Removing a paper from the current project keeps its PDF and its links to other p
 
 In settings, choose a direct model profile or register the Sci-Station agent with your local Magpie gateway and select its model in Magpie. A direct HTTPS provider takes an API Base URL, model ID and API key. A local loopback endpoint can also use HTTP. macOS Keychain stores persistent direct-provider keys and the optional MinerU token.
 
-1. Open **AI** and choose **Chat** for a single research conversation with its source material, or **Roundtable** for a discussion with multiple seats. Start without a project for a general question, or enter AI from a project to work within that project.
+1. Open **AI** and choose **Chat** for a single research conversation with its source material, or **Roundtable** for a discussion with multiple seats. You can start without a project or open AI from a project. In a new chat, choose a project, files or plugins beside the composer. Choose a model and use the slider for its available reasoning levels. Open the conversation sidebar to create, find or reopen chats.
 2. Use the mode switch to bring a question, recent messages or selected attachments to the other mode. Review the proposed context, then add it to the destination draft. The original conversation stays available. Sending the draft starts the next run. See the [discussion methods](discussion-methods.md) for discussion and evidence options.
 3. Review a proposed note or task and confirm to save it. Reopen the project record after restarting and follow the citation to its original passage.
 4. For direct edits to a granted project's files, explicitly start a supported local CLI editing session. Read the request and available changes in Roundtable before approving or refusing. The originating CLI receives the one-time decision and reports the outcome.
 
-AI Lab can import a project Markdown skill. Preview, enable and trust its specific version before adding it to a run. In the desktop AI Lab, you can register a trusted HTTPS or local stdio research connector for a project. Bearer credentials go in the macOS Keychain. A local program runs with your account permissions. Review the selected program and script before trusting them. You can select an excerpt yourself, or review an external read proposed by a model. Check the project, connection, operation and exact arguments before approving. Your decision applies to this request only. The [Roundtable plugin guide](plugins.md) covers discussion guidance and local report tools.
+In single chat, open **Plugins** to browse tools. Each detail view includes a way back to the list. You can import a project Markdown skill. Preview, enable and trust its specific version before adding it to a run. In the desktop AI Lab, you can register a trusted HTTPS or local stdio research connector for a project. Bearer credentials go in the macOS Keychain. A local program runs with your account permissions. Review the selected program and script before trusting them. You can select an excerpt yourself, or review an external read proposed by a model. Check the project, connection, operation and exact arguments before approving. Your decision applies to this request only. The [Roundtable plugin guide](plugins.md) covers discussion guidance and local report tools.
 
 ## Back up your research
 

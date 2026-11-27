@@ -8,6 +8,9 @@ Development, validation, versioning, and release conventions are maintained in `
 
 ### Added
 
+- Align Home and project widgets to shared grid rows. Browse conversations in a separate sidebar and switch between single chat and Roundtable in one toolbar. The new-chat composer groups the project, files, plugins, model and supported reasoning levels. Research tools have individual views with a back action.
+- Manage the shared data and paper location in Settings. A fresh desktop installation starts with a per-user Application Support folder, while existing installations reopen their selected data directory.
+
 - Create a named research workspace from either template, optionally include local examples, and change the workspace name from its menu. Projects can have their own color and symbol.
 - Press Space over a selection in the library to preview a local PDF in its default application.
 - Manage workspace prompts for agenda planning, discussion and single-seat paper reading. Review changes before applying them and restore the built-in instructions by workflow.
