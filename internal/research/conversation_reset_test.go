@@ -145,3 +145,120 @@ func TestConversationResetComparesDirectoryIdentityAcrossRevocation(t *testing.T
 		t.Fatal(err)
 	}
 }
+
+func TestRestoredFolderBindingUsesIdentityOrScopedConversationHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name                                           string
+		priorIdentity, sameTarget, hasHistory, confirm bool
+	}{
+		{"old restore with project draft", false, false, true, true},
+		{"old restore with empty archive", false, false, false, false},
+		{"restored original entity", true, true, true, false},
+		{"restored different entity", true, false, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			real := func() string {
+				t.Helper()
+				dir, err := filepath.EvalSymlinks(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				return dir
+			}
+			root, a, b := real(), real(), real()
+			s := newResearch(t, root)
+			identity, err := IdentifyDirectory(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := s.RegisterDirectoryProject(a, "", identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The restore tool revokes external access, but preserves the
+			// stable project record. Older restores have no comparison field.
+			d := s.projects[p.ID]
+			d.Project.Path = ""
+			d.Project.DirectoryGrant = nil
+			if tc.priorIdentity {
+				d.PreviousDirectoryIdentity = &identity
+			}
+			if err := s.commit(d); err != nil {
+				t.Fatal(err)
+			}
+			s = newResearch(t, root)
+			target := b
+			if tc.sameTarget {
+				target = a
+			}
+			picked := true
+			s.SetPathValidator(func(path string, _ DirectoryGrant) bool {
+				if !picked || path != target {
+					return false
+				}
+				picked = false
+				return true
+			})
+			s.SetConversationHistoryCheck(func(id string, use func(bool) error) error {
+				if tc.priorIdentity || id != p.ID {
+					t.Fatal("unexpected history lookup", id)
+				}
+				return use(tc.hasHistory)
+			})
+			resets := 0
+			s.SetConversationReset(func(id string, begin func() error) error {
+				if id != p.ID {
+					t.Fatal(id)
+				}
+				if err := begin(); err != nil {
+					return err
+				}
+				resets++
+				return nil
+			})
+			request := directoryChange{Revision: p.Revision, Path: target}
+			got, err := s.changeProjectDirectory(p.ID, request)
+			if tc.confirm {
+				if !errors.Is(err, errResetConfirmation) || !picked || resets != 0 {
+					t.Fatal(err, picked, resets)
+				}
+				request.ResetConversations = true
+				got, err = s.changeProjectDirectory(p.ID, request)
+			}
+			if err != nil || picked || got.Path != target || got.ConversationGeneration != uint64(resets) || (resets == 1) != tc.confirm {
+				t.Fatal(got, err, picked, resets)
+			}
+		})
+	}
+}
+
+func TestLegacyDifferentFolderConfirmsEvenWithNoServerHistory(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	for _, path := range []string{a, b} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := newResearch(t, t.TempDir())
+	grant, err := IdentifyDirectory(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.RegisterDirectoryProject(a, "", grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := s.projects[p.ID]
+	d.Project.DirectoryGrant = nil
+	if err := s.commit(d); err != nil {
+		t.Fatal(err)
+	}
+	s.SetConversationHistoryCheck(func(string, func(bool) error) error { t.Fatal("disk-only probe for known A to B change"); return nil })
+	if _, err := s.changeProjectDirectory(p.ID, directoryChange{Revision: p.Revision, Path: b}); !errors.Is(err, errResetConfirmation) {
+		t.Fatal(err)
+	}
+}

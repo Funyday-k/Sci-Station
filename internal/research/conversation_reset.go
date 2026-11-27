@@ -29,6 +29,12 @@ func (s *Service) SetConversationReset(reset func(string, func() error) error) {
 	s.resetConversations = reset
 }
 
+func (s *Service) SetConversationHistoryCheck(inspect func(string, func(bool) error) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.inspectConversationHistory = inspect
+}
+
 // Ordinary archive reads remain available for archived projects. A pending
 // rebind is the one state in which the partially cleaned archive is hidden.
 func (s *Service) AnyConversationResetPending() bool {
@@ -62,19 +68,13 @@ func (s *Service) CheckConversationGeneration(id string, generation uint64) erro
 	return nil
 }
 
-func differentConversationFolder(d projectData, path string, target DirectoryGrant) bool {
-	if d.Project.Path == "" {
-		return false
+func previousFolderIdentity(d projectData) *DirectoryGrant {
+	for _, identity := range []*DirectoryGrant{d.Project.DirectoryGrant, d.PreviousDirectoryIdentity} {
+		if identity != nil && identity.Inode != 0 {
+			return identity
+		}
 	}
-	last := d.Project.DirectoryGrant
-	if last == nil {
-		last = d.PreviousDirectoryIdentity
-	}
-	if last != nil {
-		return *last != target
-	}
-	// Older revoked records only have their last path.
-	return d.Project.Path != path
+	return nil
 }
 
 func (s *Service) changeDirectory(w http.ResponseWriter, r *http.Request) {
@@ -146,13 +146,45 @@ func (s *Service) changeProjectDirectory(id string, in directoryChange) (Project
 			return Project{}, os.ErrPermission
 		}
 	}
-	reset := in.Path != "" && differentConversationFolder(d, in.Path, target)
-	if !reset {
+	previous := previousFolderIdentity(d)
+	if in.Path == "" || (previous != nil && *previous == target) {
 		p, err := s.commitDirectoryChange(id, in, target, false)
 		s.mu.Unlock()
 		return p, err
 	}
+	// A restored external project can have no path or live grant but still
+	// own conversations. Inspect its archive in the same critical section
+	// that publishes a genuine first binding, so no draft can race the check.
+	inspect := s.inspectConversationHistory
 	s.mu.Unlock()
+	// A known, different path is already a rebind. Roundtable drafts may
+	// exist only in that window's local storage and cannot be enumerated here.
+	if previous == nil && (d.Project.Path == "" || d.Project.Path == in.Path) {
+		if inspect == nil {
+			return Project{}, errConversationService
+		}
+		var first Project
+		err := inspect(id, func(hasHistory bool) error {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			current, ok := s.projects[id]
+			if !ok || current.Archived {
+				return os.ErrNotExist
+			}
+			if current.Project.Revision != in.Revision {
+				return workspace.ErrConflict
+			}
+			if hasHistory || len(current.Reviews) > 0 || len(current.RoundtableRules) > 0 {
+				return errResetConfirmation
+			}
+			var issue error
+			first, issue = s.commitDirectoryChange(id, in, target, false)
+			return issue
+		})
+		if !errors.Is(err, errResetConfirmation) {
+			return first, err
+		}
+	}
 	if !in.ResetConversations {
 		return Project{}, errResetConfirmation
 	}

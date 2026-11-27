@@ -131,18 +131,19 @@ type projectData struct {
 // Published project snapshots are immutable. Each mutation copies only its own map
 // and installs the new snapshot after the single on-disk replacement succeeds.
 type Service struct {
-	directoryChanges          sync.Mutex
-	pendingConversationResets int
-	resetConversations        func(string, func() error) error
-	dir                       string
-	mux                       *http.ServeMux
-	papers                    *PaperLibrary
-	mu                        sync.RWMutex
-	projects                  map[string]projectData
-	workspaceTasks            workspaceTaskData
-	pathValidator             func(string, DirectoryGrant) bool
-	newTaskReminder           func(Task) (string, error)
-	retrievalWorker           chan struct{}
+	inspectConversationHistory func(string, func(bool) error) error
+	directoryChanges           sync.Mutex
+	pendingConversationResets  int
+	resetConversations         func(string, func() error) error
+	dir                        string
+	mux                        *http.ServeMux
+	papers                     *PaperLibrary
+	mu                         sync.RWMutex
+	projects                   map[string]projectData
+	workspaceTasks             workspaceTaskData
+	pathValidator              func(string, DirectoryGrant) bool
+	newTaskReminder            func(Task) (string, error)
+	retrievalWorker            chan struct{}
 
 	onWorkspaceMenuChanged func()
 }

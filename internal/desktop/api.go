@@ -132,6 +132,7 @@ func (a *apiServer) serve(port int) http.Handler {
 				}
 				return nil
 			}, a.research.AnyConversationResetPending)
+			a.research.SetConversationHistoryCheck(a.meetings.WithProjectConversationHistory)
 			a.research.SetConversationReset(a.resetProjectConversations)
 			if err := a.research.RecoverConversationResets(); err != nil {
 				log.Printf("项目对话清理等待恢复：%v", err)
