@@ -117,7 +117,6 @@
     );
   const detailText = (value) =>
     typeof value === "string" ? value : value ? JSON.stringify(value) : "";
-  $("toggle-sidebar").innerHTML = icon("sidebar");
   $("dismiss-notice").innerHTML = icon("close");
   function storageGet(key) {
     try {
@@ -241,19 +240,6 @@
       text += `：${detail}`;
     if (event.type === "round_started" && detail) text += ` ${detail}`;
     return { owner, text };
-  }
-  function sidebar(open) {
-    const mobile = matchMedia("(max-width: 800px)").matches;
-    document.body.classList.toggle(
-      mobile ? "sidebar-open" : "sidebar-collapsed",
-      mobile ? open : !open,
-    );
-    $("toggle-sidebar").setAttribute("aria-expanded", String(open));
-    if (!mobile) storageSet("studio.sidebar", open ? "open" : "closed");
-  }
-  function closeMobileSidebar() {
-    window.SciShellLayout?.dismissProjectNav();
-    if (matchMedia("(max-width: 800px)").matches) sidebar(false);
   }
   let restoringRoute = true;
   function syncUrl(id, preserveHash = false, createdProject = "") {
@@ -477,7 +463,6 @@
       window.RoundtableChildren?.close({ restoreFocus: false });
     }
     state.view = view;
-    document.body.classList.toggle("settings-mode", ["settings", "plugins"].includes(view));
     const viewURL = new URL(location.href);
     if (view === "table") viewURL.searchParams.delete("view");
     else viewURL.searchParams.set("view", view);
@@ -488,7 +473,6 @@
     $("settings-view").hidden = !["settings", "plugins"].includes(view);
     if (view === "table" && !state.selected && !$("create-form").hidden) setup.resume();
     renderHeading();
-    $("back-to-table").hidden = view === "table";
     for (const button of document.querySelectorAll(".view-tab")) {
       const selected = button.dataset.view === view;
       button.classList.toggle("selected", selected);
@@ -502,7 +486,7 @@
     if (view === "plugins") {
       window.RoundtableSettingsNav?.select("plugins");
     }
-    closeMobileSidebar();
+    window.SciShellLayout?.dismissSessionNav(true);
   }
   const cleanTitle = (value) =>
     typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -530,6 +514,7 @@
       : state.sessions.find((item) => item.id === state.selected);
   }
   function renderHeading() {
+    $("back-to-table").hidden = state.view !== "plugins";
     const projectName = state.draftOpen
       ? projects.available().find(project => project.id === state.activeProject)?.name
       : "";
@@ -3033,14 +3018,6 @@
   });
   $("draft-clear-project").addEventListener("click", () => openDraft("@global"));
   $("dismiss-notice").addEventListener("click", clearError);
-  $("toggle-sidebar").addEventListener("click", () =>
-    sidebar(
-      matchMedia("(max-width: 800px)").matches
-        ? !document.body.classList.contains("sidebar-open")
-        : document.body.classList.contains("sidebar-collapsed"),
-    ),
-  );
-  $("sidebar-scrim").addEventListener("click", () => sidebar(false));
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented) return;
     if (reportUI.isOpen() || pluginsUI.isOpen()) return;
@@ -3073,7 +3050,7 @@
     if (event.key === "Escape" && state.filePanelOpen) {
       event.preventDefault();
       closeChanges();
-    } else if (event.key === "Escape" && !window.SciShellLayout) closeMobileSidebar();
+    }
   });
   window.addEventListener("roundtable:navigate", (event) => {
     event.preventDefault();
@@ -3555,9 +3532,5 @@
   window.addEventListener("sci:projects-changed", () => projects.load().catch(showError));
   $("draft-retry-projects").addEventListener("click", boot);
   $("retry-connect").addEventListener("click", boot);
-  sidebar(
-    !matchMedia("(max-width: 800px)").matches &&
-      storageGet("studio.sidebar") !== "closed",
-  );
   boot();
 })();

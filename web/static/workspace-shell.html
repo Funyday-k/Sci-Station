@@ -27,16 +27,16 @@
   <link rel="stylesheet" href="/static/context-rail.css">
   <link rel="stylesheet" href="/static/project-sidebar.css">
 </head>
-<body data-workspace-surface="{{.Surface}}" data-workspace-layout="{{if .Pane}}pane{{else}}document{{end}}">
+<body{{if .Settings}} class="settings-mode"{{end}}{{if .Desktop}} data-native-workspace{{end}} data-workspace-surface="{{.Surface}}" data-workspace-layout="{{if .Pane}}pane{{else}}document{{end}}">
   <aside id="workspace-sidebar" class="workspace-sidebar" aria-label="工作区导航" data-l10n-aria-label="workspaceNavigation">
-    <div class="workspace-sidebar-heading">
+    <div class="workspace-sidebar-heading workspace-main-nav">
       <a class="workspace-brand" href="/research" aria-label="Sci-Station"><img src="/static/roundtable-mark.png" width="25" height="25" alt=""><span>Sci-Station</span></a>
       <button id="workspace-nav-close" class="workspace-icon" type="button" aria-label="关闭导航" title="关闭导航" data-l10n-aria-label="closeNavigation" data-l10n-title="closeNavigation"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button>
     </div>
-    <div class="workspace-sidebar-scroll">
+    <div class="workspace-sidebar-scroll workspace-main-nav">
       <nav data-workspace-nav aria-label="工作区" data-l10n-aria-label="toolbarWorkspace"></nav>
       <div id="workspace-context" class="workspace-context">
-        {{block "sidebar" .}}{{end}}
+        {{if not .AI}}{{block "sidebar" .}}{{end}}{{end}}
         <section id="workspace-projects" aria-label="科研项目" data-l10n-aria-label="projectNavigation">
           <div class="project-heading">
             <strong data-l10n-text="myProjects">我的项目</strong>
@@ -47,29 +47,44 @@
         </section>
       </div>
     </div>
-    <div class="workspace-sidebar-footer">
+    <div class="workspace-sidebar-footer workspace-main-nav">
       <nav data-workspace-settings aria-label="设置" data-l10n-aria-label="routeSettings"></nav>
-      {{if .Desktop}}<details class="workspace-roots">
-        <summary><svg class="ui-icon" data-ui-icon="folder" aria-hidden="true"></svg><span data-l10n-text="toolbarWorkspace">工作区</span></summary>
-        <div><button type="button" data-root-action="open" data-l10n-text="toolbarOpenWorkspace">打开工作区…</button><button type="button" data-root-action="create" data-l10n-text="toolbarCreateWorkspace">创建工作区…</button><button type="button" data-root-action="rename" data-en="Rename workspace…">重命名工作区…</button><button type="button" data-root-action="forget" data-en="Forget recent workspace">清除最近工作区</button><button type="button" data-root-action="reveal" data-l10n-text="revealWorkspace">在 Finder 中显示工作区</button></div>
-      </details>{{end}}
+    </div>
+    {{if eq .Surface "studio"}}
+    <div id="workspace-settings-nav">
+      <a id="workspace-settings-back" href="/research"><svg class="ui-icon" data-ui-icon="chevronLeft" aria-hidden="true"></svg><span data-en="Back to workspace">返回工作区</span></a>
+      {{block "settingsSidebar" .}}{{end}}
+    </div>
+    {{end}}
+  </aside>
+  {{if .AI}}
+  <aside id="workspace-session-sidebar" class="workspace-sidebar session-sidebar" aria-label="会话管理" data-en-aria-label="Conversations"{{if .Settings}} hidden inert{{end}}>
+    <button id="workspace-session-close" class="workspace-icon" type="button" aria-label="关闭会话栏" data-en-aria-label="Close conversations"><svg class="ui-icon" data-ui-icon="close" aria-hidden="true"></svg></button>
+    <div class="workspace-sidebar-scroll">
+      {{template "sidebar" .}}
     </div>
   </aside>
+  {{end}}
   <button id="workspace-nav-scrim" type="button" aria-label="关闭导航" data-l10n-aria-label="closeNavigation" tabindex="-1" hidden></button>
   <header class="workspace-bar">
-    <button id="workspace-nav-toggle" class="workspace-icon" type="button" aria-controls="workspace-sidebar" aria-expanded="true" aria-label="切换导航" title="切换导航" data-l10n-title="toggleNavigation" data-l10n-aria-label="toggleNavigation"><svg class="ui-icon" data-ui-icon="sidebar" aria-hidden="true"></svg></button>
-    <div class="workspace-history">
-      <button type="button" class="workspace-icon" data-command="back" aria-label="后退" title="后退" data-l10n-aria-label="back" data-l10n-title="back"><svg class="ui-icon" data-ui-icon="chevronLeft" aria-hidden="true"></svg></button>
-      <button type="button" class="workspace-icon" data-command="forward" aria-label="前进" title="前进" data-l10n-aria-label="forward" data-l10n-title="forward"><svg class="ui-icon" data-ui-icon="chevronRight" aria-hidden="true"></svg></button>
+    <div class="workspace-bar-start">
+      <button id="workspace-nav-toggle" class="workspace-icon" type="button" aria-controls="workspace-sidebar" aria-expanded="true" aria-label="切换导航" title="切换导航" data-l10n-title="toggleNavigation" data-l10n-aria-label="toggleNavigation"><svg class="ui-icon" data-ui-icon="sidebar" aria-hidden="true"></svg></button>
+      {{if .AI}}<button id="workspace-session-toggle" class="workspace-icon" type="button" aria-controls="workspace-session-sidebar" aria-expanded="true" aria-label="切换会话栏" data-en-aria-label="Toggle conversations"{{if .Settings}} hidden{{end}}><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>{{end}}
+      <div class="workspace-history">
+        <button type="button" class="workspace-icon" data-command="back" aria-label="后退" title="后退" data-l10n-aria-label="back" data-l10n-title="back"><svg class="ui-icon" data-ui-icon="chevronLeft" aria-hidden="true"></svg></button>
+        <button type="button" class="workspace-icon" data-command="forward" aria-label="前进" title="前进" data-l10n-aria-label="forward" data-l10n-title="forward"><svg class="ui-icon" data-ui-icon="chevronRight" aria-hidden="true"></svg></button>
+      </div>
     </div>
     <div id="workspace-breadcrumb">{{block "breadcrumb" .}}<span data-workspace-location>{{.Title}}</span>{{end}}</div>
     {{if .AI}}<nav id="workspace-ai-modes" aria-label="AI 模式" data-en-aria-label="AI mode" hidden>
       <a data-ai-mode="single" href="/lab" data-en="Chat">单人对话</a>
       <a data-ai-mode="roundtable" href="/studio" data-en="Roundtable">圆桌讨论</a>
     </nav>{{end}}
-    <div id="workspace-tools">{{block "tools" .}}{{end}}</div>
-    <div class="shell-rail-controls">
-      <button id="shell-assist" class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
+    <div class="workspace-bar-end">
+      <div id="workspace-tools">{{block "tools" .}}{{end}}</div>
+      <div class="shell-rail-controls">
+        <button id="shell-assist" class="workspace-icon" type="button" aria-controls="context-rail" aria-pressed="false" aria-label="询问 AI" title="询问 AI" data-l10n-aria-label="askAI" data-l10n-title="askAI"><svg class="ui-icon" data-ui-icon="chat" aria-hidden="true"></svg></button>
+      </div>
     </div>
   </header>
   <div class="workspace-region">{{template "content" .}}</div>

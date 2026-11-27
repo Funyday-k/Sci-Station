@@ -80,10 +80,15 @@ func (a *apiServer) serveWorkspaceSurface(w http.ResponseWriter, r *http.Request
 			storage = a.storageLocations()
 		}
 		_ = surface.page.Execute(w, struct {
-			Title, Surface    string
-			Desktop, Pane, AI bool
-			Storage           storageLocations
-		}{surface.title, surface.name, a.desktop, surface.pane, surface.name == "lab" || surface.name == "studio", storage})
+			Title, Surface              string
+			Desktop, Pane, AI, Settings bool
+			Storage                     storageLocations
+		}{
+			Title: surface.title, Surface: surface.name, Desktop: a.desktop, Pane: surface.pane,
+			AI:       surface.name == "lab" || surface.name == "studio",
+			Settings: surface.name == "studio" && (r.URL.Query().Get("view") == "settings" || r.URL.Query().Get("view") == "plugins"),
+			Storage:  storage,
+		})
 	}
 	return true
 }

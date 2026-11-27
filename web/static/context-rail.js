@@ -75,7 +75,7 @@
   function routeLink(c,id){return window.SciStationNav.route("/research",{project:c.project,view:id});}
   function mode(){
     const state=layout.state;
-    if(!state)return "hidden";
+    if(!state || window.SciStationNav.isSettings?.(new URL(location.href)))return "hidden";
     if(requestedMode)return requestedMode;
     return state.panelPinned ? state.mode : "hidden";
   }
@@ -157,7 +157,7 @@
       if(c.project)items.push(anchor(text("项目概览","Project overview"),routeLink(c,"overview")));
       if(c.path==="/research" && (c.view==="projects" || c.project))items.push(button(text("新建项目","New project"),()=>window.SciStationNav.command("newProject")));
       if(c.view==="tasks")items.push(anchor(text("全部任务","All tasks"),"/research?view=tasks"));
-      if(document.querySelector(".workspace-roots"))items.push(button(text("在 Finder 中显示工作区","Reveal workspace"),()=>window.SciStationNav.command("revealWorkspace")));
+      if(document.body.dataset.nativeWorkspace !== undefined)items.push(button(text("在 Finder 中显示工作区","Reveal workspace"),()=>window.SciStationNav.command("revealWorkspace")));
     }
     node("rail-inspect").replaceChildren(...items);
   }
@@ -291,7 +291,7 @@
     finally{if(ticket===generation){busy=false;drawAI();}}
   }
   function showMode(next,trigger=document.activeElement){
-    if(!layout.state)return;
+    if(!layout.state || window.SciStationNav.isSettings?.(new URL(location.href)))return;
     const previous=mode();
     if(next!=="hidden" && trigger && !trigger.closest?.("#context-rail,#reader-inspector"))returnFocus=trigger;
     requestedRoute=panelRoute();

@@ -15,7 +15,6 @@
   }
   function updated(value) {
     state=value;
-    updateProjectNav();
     window.SciStationNav.update();
     window.SciResearch?.updateNav();
     window.dispatchEvent(new Event("sci:shell-layout"));
@@ -84,57 +83,115 @@
   function decorateTop(nav) {
     if(state)decorateStrip(nav,Array.from(nav.querySelectorAll("a"),a=>a.dataset.section),"top","section");
   }
-  let compactTreeOpen=false;
-  function updateProjectNav() {
-    const sidebar=document.getElementById("workspace-sidebar"), toggle=document.getElementById("workspace-nav-toggle");
-    if(!sidebar || !toggle)return;
-    const expanded=narrow.matches ? compactTreeOpen : state?.treeExpanded!==false;
-    document.body.classList.toggle("workspace-nav-collapsed",!narrow.matches && !expanded);
-    document.body.classList.toggle("workspace-nav-open",narrow.matches && expanded);
-    sidebar.hidden=!expanded;
-    sidebar.inert=!expanded;
-    toggle.setAttribute("aria-expanded",String(expanded));
-    const scrim=document.getElementById("workspace-nav-scrim");
-    if(scrim)scrim.hidden=!narrow.matches || !expanded;
+  const primary = document.getElementById("workspace-sidebar");
+  const primaryToggle = document.getElementById("workspace-nav-toggle");
+  const sessions = document.getElementById("workspace-session-sidebar");
+  const sessionToggle = document.getElementById("workspace-session-toggle");
+  let compactPanel = null, settingsMode = document.body.classList.contains("settings-mode");
+  let settingsExpanded = true, sessionsExpanded = true;
+  try { sessionsExpanded = sessionStorage.getItem("sci.sidebar.sessions") !== "closed"; } catch {}
+
+  function setExpanded(panel, toggle, expanded) {
+    panel.hidden = !expanded;
+    panel.inert = !expanded;
+    toggle.setAttribute("aria-expanded", String(expanded));
   }
-  function dismissProjectNav(restoreFocus=false) {
-    if(!compactTreeOpen)return;
-    compactTreeOpen=false;
-    updateProjectNav();
-    if(restoreFocus)document.getElementById("workspace-nav-toggle")?.focus();
+  function updateNavigation() {
+    const url = new URL(location.href);
+    const settings = window.SciStationNav.isSettings(url);
+    const modeChanged = settings !== settingsMode;
+    if (modeChanged) {
+      compactPanel = null;
+      settingsExpanded = true;
+      settingsMode = settings;
+    }
+    document.body.classList.toggle("settings-mode", settings);
+    const treeOpen = narrow.matches ? compactPanel === primary : settings ? settingsExpanded : state?.treeExpanded !== false;
+    const chatsOpen = Boolean(sessions && !settings && (narrow.matches ? compactPanel === sessions : sessionsExpanded));
+    document.body.classList.toggle("workspace-nav-collapsed", !narrow.matches && !treeOpen);
+    document.body.classList.toggle("workspace-nav-open", narrow.matches && treeOpen);
+    document.body.classList.toggle("workspace-session-expanded", chatsOpen);
+    setExpanded(primary, primaryToggle, treeOpen);
+    if (sessions) {
+      sessionToggle.hidden = settings;
+      setExpanded(sessions, sessionToggle, chatsOpen);
+    }
+    document.getElementById("workspace-nav-scrim").hidden = !narrow.matches || !compactPanel;
+    if (modeChanged) {
+      const target = settings ? (treeOpen ? document.getElementById("workspace-settings-back") : primaryToggle) :
+        (treeOpen ? document.querySelector("[data-workspace-settings] a") : primaryToggle);
+      target?.focus({preventScroll:true});
+    }
   }
-  const treeToggle=document.getElementById("workspace-nav-toggle");
-  if(treeToggle){
-    treeToggle.onclick=()=>{
-      if(!narrow.matches){
-        if(state)save({treeExpanded:!state.treeExpanded}).catch(()=>{});
-        return;
-      }
-      compactTreeOpen=!compactTreeOpen;
-      updateProjectNav();
-      if(compactTreeOpen){
-        const sidebar=document.getElementById("workspace-sidebar");
-        (sidebar.querySelector('[data-project][aria-current]') || sidebar.querySelector('[aria-current="page"]') || sidebar.querySelector("a"))?.focus();
-      }
-    };
-    document.getElementById("workspace-nav-close").onclick=()=>dismissProjectNav(true);
-    document.getElementById("workspace-nav-scrim").onclick=()=>dismissProjectNav(true);
-    // Page menus handle Escape before the outer navigation drawer.
-    window.addEventListener("keydown",event=>{
-      if(event.defaultPrevented || event.key!=="Escape" || !compactTreeOpen || document.querySelector("dialog[open]"))return;
-      const disclosure=event.target.closest?.("#workspace-sidebar details[open]") || document.querySelector("#workspace-sidebar .workspace-roots[open]");
-      event.preventDefault();
-      if(disclosure){disclosure.open=false;disclosure.querySelector("summary")?.focus();return;}
-      dismissProjectNav(true);
-    });
-    document.addEventListener("click",event=>{
-      if(!event.target.closest("#workspace-sidebar,#workspace-nav-toggle,#project-row-menu,#project-editor"))dismissProjectNav();
-      else if(event.target.closest("#presets button,[data-settings-page]"))dismissProjectNav();
-    });
-    narrow.addEventListener("change",()=>{compactTreeOpen=false;updateProjectNav();});
-    updateProjectNav();
+  function dismissPanel(panel, restoreFocus) {
+    if (!panel || compactPanel !== panel) return;
+    compactPanel = null;
+    updateNavigation();
+    if (restoreFocus) (panel === primary ? primaryToggle : sessionToggle).focus();
   }
+  const dismissProjectNav = (restoreFocus = false) => dismissPanel(primary, restoreFocus);
+  const dismissSessionNav = (restoreFocus = false) => dismissPanel(sessions, restoreFocus);
+  function togglePanel(panel) {
+    if (narrow.matches) {
+      if (compactPanel === panel) { dismissPanel(panel, true); return; }
+      compactPanel = panel;
+      updateNavigation();
+      const selected = settingsMode ? panel.querySelector('[aria-selected="true"]') :
+        panel.querySelector('[data-project][aria-current]') || panel.querySelector('[aria-current]');
+      const fallback = panel === primary ? panel.querySelector("a") : panel.querySelector("#lab-new-thread,#new-session");
+      (selected || fallback)?.focus();
+      return;
+    }
+    if (panel === sessions) {
+      sessionsExpanded = !sessionsExpanded;
+      try { sessionStorage.setItem("sci.sidebar.sessions", sessionsExpanded ? "open" : "closed"); } catch {}
+    } else if (settingsMode) {
+      settingsExpanded = !settingsExpanded;
+    } else {
+      if (state) save({treeExpanded: !state.treeExpanded}).catch(() => {});
+      return;
+    }
+    updateNavigation();
+  }
+  primaryToggle.onclick = () => togglePanel(primary);
+  if (sessions) {
+    sessionToggle.onclick = () => togglePanel(sessions);
+    document.getElementById("workspace-session-close").onclick = () => dismissSessionNav(true);
+  }
+  document.getElementById("workspace-nav-close").onclick = () => dismissProjectNav(true);
+  document.getElementById("workspace-nav-scrim").onclick = () => dismissPanel(compactPanel, true);
+  // Let an open menu or dialog handle Escape before dismissing its drawer.
+  window.addEventListener("keydown", event => {
+    if (event.defaultPrevented || event.key !== "Escape" || !compactPanel || document.querySelector("dialog[open]")) return;
+    event.preventDefault();
+    const disclosure = event.target.closest?.("details[open]");
+    if (disclosure && compactPanel.contains(disclosure)) {
+      disclosure.open = false;
+      disclosure.querySelector("summary")?.focus();
+    } else dismissPanel(compactPanel, true);
+  });
+  document.addEventListener("click", event => {
+    if (!compactPanel) return;
+    if (event.target.closest("#presets button,[data-settings-page]")) {
+      dismissPanel(compactPanel, true);
+    } else if (!event.target.closest("#workspace-sidebar,#workspace-session-sidebar,#workspace-nav-toggle,#workspace-session-toggle,#project-row-menu,#project-editor,#history-menu")) {
+      dismissPanel(compactPanel, false);
+    }
+  });
+  document.addEventListener("focusin", event => {
+    if (compactPanel && !event.target.closest("#workspace-sidebar,#workspace-session-sidebar,#workspace-nav-toggle,#workspace-session-toggle,#workspace-nav-scrim,#project-row-menu,#history-menu,dialog")) {
+      dismissPanel(compactPanel, false);
+    }
+  });
+  narrow.addEventListener("change", () => {
+    const focused = document.activeElement;
+    compactPanel = null;
+    updateNavigation();
+    if (primary.hidden && primary.contains(focused)) primaryToggle.focus();
+    if (sessions?.hidden && sessions.contains(focused) && !sessionToggle.hidden) sessionToggle.focus();
+  });
+  updateNavigation();
   function decorateTabs(container,ids){decorateStrip(container,ids,"tabs","tabKey");}
-  window.SciShellLayout={request,ready,save,top,ordered,decorateTop,decorateTabs,dismissProjectNav,get state(){return state;}};
+  window.SciShellLayout={request,ready,save,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
   for(const q of [narrow,matchMedia("(min-width:1400px)"),matchMedia("(min-width:760px)")])q.addEventListener("change",()=>window.SciResearch?.updateNav());
 })();

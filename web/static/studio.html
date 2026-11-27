@@ -78,6 +78,8 @@
         </details>
 
       </aside>
+{{end}}
+{{define "settingsSidebar"}}
 <nav class="settings-nav" aria-label="设置分类" data-en-aria-label="Settings categories" role="tablist" aria-orientation="vertical">
                 <button id="settings-tab-storage" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-storage" data-settings-page="storage" data-l10n-text="settingsStorage" tabindex="-1">数据位置</button>
                 <button id="settings-tab-modules" class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-panel-modules" data-settings-page="modules" data-l10n-text="settingsWorkspaceModules" tabindex="-1">工作区模块</button>
@@ -132,22 +134,7 @@
 {{end}}
 {{define "content"}}
 <div class="app workspace-pane">
-      <button
-        id="sidebar-scrim"
-        class="scrim"
-        aria-label="关闭项目栏"
-        tabindex="-1"
-      ></button>
       <main class="main">
-          <div class="topbar-start">
-            <button
-              id="toggle-sidebar"
-              class="icon-button"
-              aria-label="切换项目栏"
-              aria-controls="studio-session-sidebar"
-              aria-expanded="true"
-            ></button>
-          </div>
           <span id="connection-status" class="connection-status sr-only"
             >本机服务</span
           >
