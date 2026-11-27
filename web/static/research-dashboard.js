@@ -163,58 +163,6 @@
     return items;
   }
 
-  // Match the native dashboard: find the lowest adjacent columns that can hold the card.
-  // The browser supplies the content height so short cards need no reserved rows.
-  function packWidgets(items, columns, gap) {
-    const bottoms = Array(columns).fill(0);
-    const positions = items.map(({span, height}) => {
-      let best = {column: 0, top: Infinity};
-      for (let column = 0; column <= columns - span; column++) {
-        const top = Math.max(...bottoms.slice(column, column + span));
-        // Keep neighboring groups aligned when two placements have the same height.
-        if (top < best.top || (top === best.top && column % span === 0 && best.column % span !== 0)) {
-          best = {column, top};
-        }
-      }
-      bottoms.fill(best.top + height + gap, best.column, best.column + span);
-      return best;
-    });
-    return {positions, height: items.length ? Math.max(...bottoms) - gap : 0};
-  }
-
-  function mountGrid(grid) {
-    if (!grid || typeof ResizeObserver === "undefined") return;
-    const cards = Array.from(grid.children);
-    function place() {
-      const style = getComputedStyle(grid);
-      const columns = Number(style.getPropertyValue("--dashboard-columns"));
-      const gap = parseFloat(style.columnGap);
-      const width = grid.getBoundingClientRect().width;
-      const unit = (width - (columns - 1) * gap) / columns;
-      if (unit <= 0) return;
-      const spans = cards.map(card => Math.min(columns, Number(getComputedStyle(card).getPropertyValue("--dashboard-span"))));
-      cards.forEach((card, i) => {
-        card.style.inlineSize = spans[i] * (unit + gap) - gap + "px";
-      });
-      const items = cards.map((card, i) => ({span: spans[i], height: card.getBoundingClientRect().height}));
-      const {positions, height} = packWidgets(items, columns, gap);
-      positions.forEach(({column, top}, i) => {
-        cards[i].style.insetInlineStart = column * (unit + gap) + "px";
-        cards[i].style.insetBlockStart = top + "px";
-      });
-      grid.style.blockSize = height + "px";
-      grid.classList.add("dashboard-grid-packed");
-    }
-
-    place();
-    const observer = new ResizeObserver(() => {
-      if (grid.isConnected) place();
-      else observer.disconnect();
-    });
-    observer.observe(grid);
-    cards.forEach(card => observer.observe(card));
-  }
-
   function move(items, source, destination) {
     const from = items.findIndex(item => item.id === source);
     const to = items.findIndex(item => item.id === destination);
@@ -329,8 +277,10 @@
       esc(local("homeWidgetGallery", "小组件库", "Widget Gallery")) + '">' +
       '<div class="dashboard-layout-options">' + board.items.filter(i => available.has(i.id)).map(layoutOption).join("") + '</div>' +
       '<button type="button" class="button" data-dashboard-control="reset">' + esc(local("homeResetDefault", "恢复默认布局", "Reset Default")) + '</button></section>' : '<div id="dashboard-layout" hidden></div>';
-    return '<div id="dashboard-view">' + heading(title, project ? project.description : dateHeading, projectActions + edit, project) + gallery +
-      (visible.length ? '<div class="dashboard-grid">' + visible.map(widget).join("") + '</div>' : ui.empty(local("homeNoEnabledWidgets", "没有显示的组件", "No widgets are enabled."))) + '</div>';
+    const gridClass = project ? "dashboard-grid" : "dashboard-grid dashboard-home-grid";
+    const widgets = visible.length ? '<div class="' + gridClass + '">' + visible.map(widget).join("") + '</div>' :
+      ui.empty(local("homeNoEnabledWidgets", "没有显示的组件", "No widgets are enabled."));
+    return '<div id="dashboard-view">' + heading(title, project ? project.description : dateHeading, projectActions + edit, project) + gallery + widgets + '</div>';
 
     function homeSections() {
       const reading = state.papers.filter(p => p.status === "unread" || p.status === "reading")
@@ -442,7 +392,6 @@
   function mount(root, state, render, toast) {
     const brief = root.querySelector?.(".dashboard-brief");
     if (brief) window.SciMarkdown?.render(brief, brief.textContent, {headingShift: 2, cache: true});
-    mountGrid(root.querySelector?.(".dashboard-grid"));
     const descriptors = state.project ? projectWidgets : homeWidgets;
     const board = preference(state, descriptors);
     const modules = state.dashboardData?.modules;
@@ -511,7 +460,7 @@
     root.ondragend = () => { dragged = ""; };
   }
 
-  const dashboard = {load, markup, mount, calendarKey, calendarMonth, tasksOn, taskWindows, projectSummaries, normalizeLayout, move, scopeKey, researchQuestions, packWidgets};
+  const dashboard = {load, markup, mount, calendarKey, calendarMonth, tasksOn, taskWindows, projectSummaries, normalizeLayout, move, scopeKey, researchQuestions};
   if (typeof module !== "undefined" && module.exports) module.exports = dashboard;
   if (typeof window !== "undefined") window.SciStationDashboard = dashboard;
 })();

@@ -82,7 +82,7 @@ test("overview extracts research questions only from corresponding brief section
   assert.deepEqual(dashboard.researchQuestions(body), ["Does the scaling hold?", "What sets the transition?", "可以测量什么？"]);
 });
 
-test("Home and Overview render durable draft counts and keep layout changes scoped to each root", async () => {
+test("Home and Overview render durable draft counts and keep widget order, size and visibility scoped to each root", async () => {
   const storage = new Map();
   const window = {SciStationNav: {route: (path, params) => path + "?" + new URLSearchParams(params)}};
   const js = fs.readFileSync(require.resolve("../web/static/research-dashboard.js"), "utf8");
@@ -112,6 +112,10 @@ test("Home and Overview render durable draft counts and keep layout changes scop
   state.dashboardData = await app.load(request);
   const now = new Date(2026, 10, 25);
   const first = app.markup(state, ui, now);
+  const widgets = html => Array.from(html.matchAll(/class="dashboard-widget dashboard-(\w+)" data-dashboard-widget="(\w+)"/g),
+    ([, size, id]) => [id, size]);
+  assert.match(first, /class="dashboard-grid dashboard-home-grid"/);
+  assert.deepEqual(widgets(first).slice(0, 4), [["today", "medium"], ["active_projects", "medium"], ["ai_review", "medium"], ["calendar", "large"]]);
   assert.ok(first.includes('<a href="/research?view=tasks&tab=calendar">打开日历</a>'));
   assert.match(first, /<h1>Workspace One<\/h1>/);
   assert.match(first, /<b>2<\/b> 项待审核/);
@@ -120,52 +124,37 @@ test("Home and Overview render durable draft counts and keep layout changes scop
 
   const root = {id: "dashboard-view", ownerDocument: {getElementById: () => null}};
   app.mount(root, state, () => {}, assert.fail);
-  root.onclick({target: {closest: () => ({dataset: {dashboardControl: "edit"}, closest: () => null})}});
+  const click = (action, id) => root.onclick({target: {closest: () => ({
+    dataset: {dashboardControl: action}, closest: () => id && {dataset: {dashboardOption: id}}
+  })}});
+  click("edit");
+  click("up", "ai_review");
+  root.onchange({target: {
+    dataset: {dashboardControl: "size"}, value: "wide", matches: () => true,
+    closest: () => ({dataset: {dashboardOption: "ai_review"}})
+  }});
   root.onchange({target: {
     dataset: {dashboardControl: "visible"}, checked: false, matches: () => true,
     closest: () => ({dataset: {dashboardOption: "calendar"}})
   }});
   assert.doesNotMatch(app.markup(state, ui, now), /data-dashboard-widget="calendar"/);
   app = browser();
-  assert.doesNotMatch(app.markup(state, ui, now), /data-dashboard-widget="calendar"/);
+  const saved = app.markup(state, ui, now);
+  assert.deepEqual(widgets(saved).slice(0, 3), [["today", "medium"], ["ai_review", "wide"], ["active_projects", "medium"]]);
+  assert.doesNotMatch(saved, /data-dashboard-widget="calendar"/);
 
   state.dashboardData = {...state.dashboardData, workspace: {id: "root-two"}, modules: {modules: [{id: "paper-library", effective: false}]}};
   const second = app.markup(state, ui, now);
   assert.match(second, /data-dashboard-widget="calendar"/);
+  assert.deepEqual(widgets(second).slice(0, 3), widgets(first).slice(0, 3));
   assert.doesNotMatch(second, /data-dashboard-widget="recent_papers"/);
 
   state.project = alpha;
   state.dashboardData = await app.load(request, alpha.id);
   const overview = app.markup(state, ui, now);
+  assert.match(overview, /class="dashboard-grid"/);
+  assert.deepEqual(widgets(overview).slice(0, 3), [["project_status", "small"], ["research_questions", "small"], ["project_brief", "medium"]]);
   assert.match(overview, /data-stage="drafting"/);
   assert.match(overview, /<b>1<\/b> 项待审核/);
   assert.doesNotMatch(overview, /Pending beta/);
-});
-
-test("dashboard cards settle on the shortest columns that fit their span", () => {
-  const items = [
-    {span: 1, height: 150},
-    {span: 1, height: 80},
-    {span: 2, height: 105},
-    {span: 1, height: 95},
-    {span: 2, height: 130},
-  ];
-  assert.deepEqual(dashboard.packWidgets(items, 4, 14), {
-    positions: [
-      {column: 0, top: 0},
-      {column: 1, top: 0},
-      {column: 2, top: 0},
-      {column: 1, top: 94},
-      {column: 2, top: 119},
-    ],
-    height: 249
-  });
-  assert.deepEqual(dashboard.packWidgets(items.map(item => ({...item, span: 1})), 1, 14), {
-    positions: [0, 164, 258, 377, 486].map(top => ({column: 0, top})),
-    height: 616
-  });
-  const aligned = dashboard.packWidgets([{span: 1, height: 130}, {span: 1, height: 80},
-    {span: 2, height: 100}, {span: 2, height: 120}], 4, 14);
-  assert.deepEqual(aligned.positions.at(-1), {column: 2, top: 114});
-  assert.deepEqual(dashboard.packWidgets([], 4, 14), {positions: [], height: 0});
 });
