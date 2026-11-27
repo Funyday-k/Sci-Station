@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   const E = window.SciResearch;
-  const {state, $, enc, esc, request, projectPath, dialog, empty, button, bytes} = E;
+  const {state, $, enc, el, fragment, request, projectPath, dialog, empty, button, bytes} = E;
   const actionPath = "/api/research/tools/project-material";
   const groups = new Map([["code", "代码"], ["data", "数据"], ["figures", "图表"], ["outputs", "输出"]]);
   const nativeActions = new Map([
@@ -21,29 +21,32 @@
   }
 
   function controls(file) {
-    if (!snapshot?.caps.native) return "";
-    return button(file ? "在 Finder 中显示" : "在 Finder 中打开目录", "material-native", {id: "reveal", glyph: "folder"}) +
-      button(file ? "在 VS Code 中打开" : "在 VS Code 中打开目录", "material-native", {id: "editor"}) +
-      (file ? button("用默认应用打开", "material-native", {id: "open"}) : "");
+    if (!snapshot?.caps.native) return [];
+    return [
+      button(file ? "在 Finder 中显示" : "在 Finder 中打开目录", "material-native", {id: "reveal", glyph: "folder"}),
+      button(file ? "在 VS Code 中打开" : "在 VS Code 中打开目录", "material-native", {id: "editor"}),
+      ...(file ? [button("用默认应用打开", "material-native", {id: "open"})] : []),
+    ];
   }
 
   function pythonControls(item) {
-    if (!snapshot.caps.native || item.kind !== "python") return "";
-    return '<div class="field"><label for="material-runtime">Python 环境</label><select id="material-runtime">' +
-      [
-        ["system", "系统 Python"],
-        ["local", "项目 .venv"],
-        ["chosen", "本次已选择的虚拟环境"]
-      ].filter(([key]) => key !== "chosen" || snapshot.caps.chosen).map(([key, title]) =>
-        '<option value="' + key + '"' + (runtime === key ? " selected" : "") + '>' + esc(title) + '</option>').join("") +
-      '</select></div><div class="actions">' + button("在终端运行", "material-native", {id: "run-terminal"}) +
-      button("准备 VS Code 任务", "material-native", {id: "run-editor"}) +
-      (snapshot.caps.localEnv ? "" : button("创建项目 .venv", "material-native", {id: "create-venv"})) +
-      button("选择虚拟环境文件夹", "material-native", {id: "select-venv"}) + '</div>';
+    if (!snapshot.caps.native || item.kind !== "python") return [];
+    const options = [["system", "系统 Python"], ["local", "项目 .venv"]];
+    if (snapshot.caps.chosen) options.push(["chosen", "本次已选择的虚拟环境"]);
+    const select = el("select", {id:"material-runtime"}, options.map(([key, title]) =>
+      el("option", {value:key, selected:runtime === key}, title)));
+    return [
+      el("div", {class:"field"}, el("label", {for:"material-runtime"}, "Python 环境"), select),
+      el("div", {class:"actions"},
+        button("在终端运行", "material-native", {id:"run-terminal"}),
+        button("准备 VS Code 任务", "material-native", {id:"run-editor"}),
+        snapshot.caps.localEnv ? [] : button("创建项目 .venv", "material-native", {id:"create-venv"}),
+        button("选择虚拟环境文件夹", "material-native", {id:"select-venv"})),
+    ];
   }
 
   function statusLine() {
-    return '<p id="linked-material-status" class="status" role="status"></p>';
+    return el("p", {id:"linked-material-status", class:"status", role:"status"});
   }
 
   async function browse() {
@@ -52,22 +55,26 @@
     if (snapshot?.project !== project) runtime = "system";
     const next = {project, tools: projectPath("files", project), caps: {}, files: [], selected: null, busy: false};
     snapshot = next;
-    dialog("项目目录", '<p class="status">正在读取…</p>', {wide: true});
-    const box = $("dialog-content").firstElementChild;
+    const box = el("p", {class:"status"}, "正在读取…");
+    dialog("项目目录", box, {wide: true});
     try {
       [next.files, next.caps] = await Promise.all([
         request(next.tools + "?view=materials"),
         request(actionPath + "?project=" + enc(project))
       ]);
       if (!box.isConnected || snapshot !== next || state.project?.id !== project) return;
-      const rows = [...groups].map(([folder, label]) => {
+      const sections = [];
+      for (const [folder, label] of groups) {
         const files = next.files.filter(file => file.path.startsWith(folder + "/"));
-        return files.length ? '<h3>' + label + '</h3><div class="list">' +
-          files.map(file => button(file.path, "preview-linked-material", {id: file.path, kind: "search-result"})).join("") + '</div>' : "";
-      }).join("");
-      box.outerHTML = '<div class="actions">' + controls(null) +
-        button("浏览及编辑项目文本", "project-files") + button("刷新目录", "linked-materials") +
-        '</div>' + statusLine() + (rows || empty("四个材料目录中暂无文件", "将代码、数据、图表和输出放入项目的 code、data、figures 或 outputs 目录。"));
+        if (!files.length) continue;
+        sections.push(el("h3", {}, label), el("div", {class:"list"}, files.map(file =>
+          button(file.path, "preview-linked-material", {id:file.path, kind:"search-result"}))));
+      }
+      box.replaceWith(el("div", {class:"actions"}, controls(null),
+        button("浏览及编辑项目文本", "project-files"), button("刷新目录", "linked-materials")),
+        statusLine(), ...(!sections.length
+          ? [empty("四个材料目录中暂无文件", "将代码、数据、图表和输出放入项目的 code、data、figures 或 outputs 目录。")]
+          : sections));
     } catch (err) {
       if (box.isConnected) box.textContent = err.message;
     }
@@ -94,11 +101,13 @@
   async function preview(item, message = "") {
     const current = snapshot;
     current.selected = item;
-    dialog(item.path.split("/").at(-1), '<div class="actions">' + button("返回项目目录", "linked-materials") +
-      controls(item) + '</div><p class="subheading">' + esc(item.path) + ' · ' + esc(bytes(item.size)) + '</p>' +
-      pythonControls(item) + statusLine() + '<div id="linked-material-preview"></div>', {wide: true});
-    $("linked-material-status").textContent = message;
-    const host = $("linked-material-preview");
+    const status = statusLine();
+    status.textContent = message;
+    const host = el("div", {id:"linked-material-preview"});
+    dialog(item.path.split("/").at(-1), fragment(
+      el("div", {class:"actions"}, button("返回项目目录", "linked-materials"), controls(item)),
+      el("p", {class:"subheading"}, item.path, " · ", bytes(item.size)),
+      pythonControls(item), status, host), {wide: true});
     const url = previewURL(current.project, item.path);
     const error = "该文件无法在这里预览，可在 Finder 或对应应用中打开。";
     if (item.kind === "image") {

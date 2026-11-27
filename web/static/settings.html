@@ -124,33 +124,78 @@
             <h2 id="collaboration-heading" data-en="Execution limits and read approval">执行上限与读取审批</h2>
             <div class="settings-card settings-options">
               <div class="setting-row">
-                <label for="setting-max-children" data-en="Tool agents per seat">每席工具代理上限</label>
-                <input id="setting-max-children" type="number" min="0" max="5" required />
+                <div>
+                  <label for="setting-auto-read" data-en="Automatically allow discussion reads">自动批准讨论中的读取</label>
+                  <p id="setting-auto-read-help" class="setting-help" data-en="When off, approve each requested file or statement read in the conversation.">关闭后，在对话中逐项允许或拒绝申请读取的文件或发言。</p>
+                </div>
+                <input id="setting-auto-read" type="checkbox" aria-describedby="setting-auto-read-help">
               </div>
               <div class="setting-row">
-                <label for="setting-max-steps" data-en="Maximum work steps">工作步骤上限</label>
-                <input id="setting-max-steps" type="number" min="2" max="40" required />
+                <div>
+                  <label for="setting-max-steps" data-en="Maximum work steps">工作步骤上限</label>
+                  <p id="setting-max-steps-help" class="setting-help" data-en="Allowed reasoning and tool steps per turn (2–40).">每轮允许的最大步骤数（2–40）。</p>
+                </div>
+                <input id="setting-max-steps" type="number" min="2" max="40" required aria-describedby="setting-max-steps-help" />
               </div>
               <div class="setting-row">
-                <label for="setting-timeout" data-en="Model call timeout (seconds)">单次模型调用超时（秒）</label>
-                <input id="setting-timeout" type="number" min="10" max="1800" required />
+                <div>
+                  <label for="setting-timeout" data-en="Model call timeout (seconds)">单次模型调用超时（秒）</label>
+                  <p id="setting-timeout-help" class="setting-help" data-en="Per-request timeout applied to new turns (10–1800 seconds).">新轮次单次模型请求超时时间（10–1800 秒）。</p>
+                </div>
+                <input id="setting-timeout" type="number" min="10" max="1800" required aria-describedby="setting-timeout-help" />
               </div>
-              <div class="setting-row"><label for="setting-max-tool-calls" data-en="Tool calls per seat">每席工具调用上限</label><input id="setting-max-tool-calls" type="number" min="1" max="240" required></div>
-              <div class="setting-row"><label for="setting-context-chars" data-en="Text context characters">文本上下文字数</label><input id="setting-context-chars" type="number" min="1000" max="5000000" required></div>
-              <div class="setting-row"><label for="setting-total-tool-chars" data-en="Total tool result characters">工具结果累计字数</label><input id="setting-total-tool-chars" type="number" min="1000" max="5000000" required></div>
-              <div class="setting-row"><label for="setting-per-tool-chars" data-en="Characters per tool result">单次工具结果字数</label><input id="setting-per-tool-chars" type="number" min="1000" max="5000000" required></div>
-              <div class="setting-row"><label for="setting-auto-read" data-en="Automatically allow discussion reads">自动批准讨论中的读取</label><input id="setting-auto-read" type="checkbox"></div>
-              <p class="settings-note" data-en="When off, approve each requested file or statement read in the conversation. These settings apply to new turns. CLI tools follow their own permissions.">关闭后，在对话中逐项允许或拒绝申请读取的文件或发言。设置用于新轮次。CLI 工具使用各自的权限。</p>
-              <div class="settings-card-footer">
-                <button id="restore-tool-budget" class="button secondary" type="button" data-en="Restore tool budget defaults">恢复默认工具预算</button>
-              </div>
+              <p class="settings-note" data-en="These settings apply to new turns. CLI tools follow their own permissions.">以上设置用于新轮次。CLI 工具遵循各自的权限策略。</p>
             </div>
+            <details id="collaboration-advanced" class="disclosure settings-advanced">
+              <summary data-en="Advanced">高级选项</summary>
+              <div class="settings-card settings-options">
+                <div class="setting-row">
+                  <div>
+                    <label for="setting-max-children" data-en="Tool agents per seat">每席工具代理上限</label>
+                    <p id="setting-max-children-help" class="setting-help" data-en="Maximum sub-agents a seat may spawn per round (0–5).">每席每轮最多派生的工具代理数量（0–5）。</p>
+                  </div>
+                  <input id="setting-max-children" type="number" min="0" max="5" required aria-describedby="setting-max-children-help" />
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <label for="setting-max-tool-calls" data-en="Tool calls per seat">每席工具调用上限</label>
+                    <p id="setting-max-tool-calls-help" class="setting-help" data-en="Maximum tool invocations per seat per turn (1–240; default 240).">每席每轮工具调用上限（1–240，默认 240）。</p>
+                  </div>
+                  <input id="setting-max-tool-calls" type="number" min="1" max="240" required aria-describedby="setting-max-tool-calls-help">
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <label for="setting-context-chars" data-en="Text context characters">文本上下文字数</label>
+                    <p id="setting-context-chars-help" class="setting-help" data-en="Character budget for text context (1,000–5,000,000).">文本上下文字符预算（1,000–5,000,000）。</p>
+                  </div>
+                  <input id="setting-context-chars" type="number" min="1000" max="5000000" required aria-describedby="setting-context-chars-help">
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <label for="setting-total-tool-chars" data-en="Total tool result characters">工具结果累计字数</label>
+                    <p id="setting-total-tool-chars-help" class="setting-help" data-en="Cumulative character budget across all tool outputs (1,000–5,000,000).">全部工具输出累计字数上限（1,000–5,000,000）。</p>
+                  </div>
+                  <input id="setting-total-tool-chars" type="number" min="1000" max="5000000" required aria-describedby="setting-total-tool-chars-help">
+                </div>
+                <div class="setting-row">
+                  <div>
+                    <label for="setting-per-tool-chars" data-en="Characters per tool result">单次工具结果字数</label>
+                    <p id="setting-per-tool-chars-help" class="setting-help" data-en="Maximum characters retained per single tool call (1,000–5,000,000).">单次工具调用保留的最大字数（1,000–5,000,000）。</p>
+                  </div>
+                  <input id="setting-per-tool-chars" type="number" min="1000" max="5000000" required aria-describedby="setting-per-tool-chars-help">
+                </div>
+                <div class="settings-card-footer">
+                  <button id="restore-tool-budget" class="button secondary" type="button" data-en="Restore tool budget defaults">恢复默认工具预算</button>
+                </div>
+              </div>
+            </details>
+            <p id="collaboration-error" class="settings-error" role="alert" aria-live="polite" hidden></p>
           </section>
           <div class="settings-rules">
             <button id="open-rules-file" type="button" class="button secondary" data-en="Discussion rules file">讨论规则文件</button>
           </div>
           <div class="settings-footer">
-            <span class="settings-save-state quiet" role="status"></span>
+            <span class="settings-save-state quiet" role="status" aria-live="polite"></span>
             <button id="save-settings" type="submit" class="button primary" disabled data-en="Save settings">保存设置</button>
           </div>
         </section>

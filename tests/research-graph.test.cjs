@@ -5,6 +5,7 @@ const {readFileSync} = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const {createTestDocument} = require("./lib/research-dom-fixture.cjs");
 const navigation = require("../web/static/workspace-nav.js");
 const graph = require("../web/static/research-graph.js");
 const inspire = require("../web/static/research-inspire-graph.js");
@@ -64,14 +65,19 @@ function mount() {
   for (const p of projects) {
     for (const area of ["notes", "tasks", "materials"]) entries.set("/api/research/projects/" + p.id + "/" + area, []);
   }
+  const document = createTestDocument();
   const elements = {}, listeners = {}, calls = [];
   for (const match of staticFile("research.html").matchAll(/\bid="([^"]+)"/g)) {
-    elements[match[1]] = {classList:{remove(){}},setAttribute(){},addEventListener(){},replaceChildren(){}};
+    elements[match[1]] = document.createElement("div");
   }
-  const document = {getElementById:id=>elements[id],querySelectorAll:()=>[],addEventListener:(event,cb)=>{listeners[event]=cb;}};
+  Object.assign(document, {
+    getElementById: id => elements[id],
+    querySelectorAll: () => [],
+    addEventListener: (event, callback) => {listeners[event] = callback;}
+  });
   const location = {href:base + "/research?project=A&view=graph", origin:base};
   const history = {replaceState:(_s,_t,url)=>{location.href=new URL(url,base).href;}};
-  const window = {addEventListener(){},RoundtableIcons:{icon:()=>""},SciStationNav:{...navigation,update(){},commitURL(url){history.replaceState(null,"",url);}},SciResearchGraph:graph};
+  const window = {addEventListener(){},RoundtableIcons:{iconNode:()=>null},SciStationNav:{...navigation,update(){},commitURL(url){history.replaceState(null,"",url);}},SciResearchGraph:graph,SciInspireGraph:inspire};
   let resolveQuery, rejectQuery, resolveWorkflow;
   const fetch = async url => {
     calls.push(url);
@@ -90,8 +96,9 @@ function mount() {
   }
   const sandbox = vm.createContext({window,document,location,history,fetch,URL,URLSearchParams,FormData,setTimeout,clearTimeout,
     localStorage:{getItem:()=>null}});
-  for (const script of ["research.js", "research-forms.js", "research-library.js"]) {
-    vm.runInContext(staticFile(script), sandbox);
+  const { runStaticScriptInContext } = require("./lib/esm-vm-loader.cjs");
+  for (const script of ["research.js", "modules/research/entry.js", "research-library.js"]) {
+    runStaticScriptInContext(script, sandbox);
   }
   return {ui:window.SciResearch,elements,calls,listeners,resolveQuery:data=>resolveQuery(Response.json(data)),
     rejectQuery:error=>rejectQuery(error),resolveWorkflow:data=>resolveWorkflow(Response.json(data))};
@@ -116,6 +123,53 @@ test("research graph exposes real occurrence navigation and discards an old proj
   await tick();
   assert.match(elements.main.innerHTML, /Lensing note/);
   assert.doesNotMatch(elements.main.innerHTML, /Old project response/);
+});
+
+function descendants(node) {
+  return [node, ...node.children.flatMap(descendants)];
+}
+
+test("graph mounts namespaced SVG, scoped workflow controls and citation records as DOM", async () => {
+  const {ui, elements} = mount();
+  await tick();
+  const id = 'paper-"A&B"';
+  const title = "Models <draft> & data";
+  const other = {id:"note-B", label:"Local notes", kind:"note"};
+  const paper = {id, label:title, kind:"paper"};
+  const papers = [{id, title, project_ids:["A"]}];
+  const relation = {source:id, target:other.id, kind:"reading"};
+  Object.assign(ui.state, {
+    graph:{nodes:[paper, other], edges:[relation]}, papers,
+    inspire:{seeds:[id], rows:[{seed:id, source:"cache", warning:"<Updated>",
+      local:{nodes:[paper,other], edges:[relation]},
+      inspire:{references:[{paper:{id:"42/part", title, year:2025}}]}}]}
+  });
+  ui.render();
+  const all = descendants(elements.main);
+  const svg = all.find(node => node.localName === "svg");
+  assert.ok(descendants(svg).every(node => node.namespaceURI === "http://www.w3.org/2000/svg"));
+  assert.equal(svg.getAttribute("viewBox"), "0 0 448 70");
+  assert.equal(svg.getAttribute("role"), "img");
+  assert.ok(svg.children.some(node => node.localName === "path"));
+  const fullLabel = descendants(svg).find(node => node.localName === "title" && node.textContent === title);
+  assert.equal(fullLabel.childNodes[0].nodeType, 3);
+  const form = all.find(node => node.getAttribute("id") === "graph-workflow-query");
+  const fields = descendants(form);
+  const focus = fields.find(node => node.getAttribute("name") === "focus");
+  assert.equal(focus.disabled, false);
+  assert.ok(focus.children.find(node => node.getAttribute("value") === other.id).hasAttribute("disabled"));
+  const paperOption = focus.children.find(node => node.getAttribute("value") === id);
+  assert.equal(paperOption.textContent, title);
+  assert.equal(paperOption.hasAttribute("disabled"), false);
+  assert.equal(fields.find(node => node.getAttribute("name") === "thresholdDays").disabled, true);
+  const external = all.find(node => node.getAttribute("target") === "_blank");
+  assert.equal(external.getAttribute("href"), "https://inspirehep.net/literature/42%2Fpart");
+  assert.equal(external.getAttribute("rel"), "noopener");
+  assert.equal(external.childNodes[0].data, title);
+  assert.ok(all.some(node => node.dataset.action === "inspire-seed-remove" && node.dataset.id === id));
+  assert.ok(all.some(node => node.dataset.action === "graph-open" && node.dataset.id === other.id));
+  assert.match(elements.main.textContent, /INSPIRE 缓存 · <Updated>/);
+  assert.equal(all.some(node => ["draft","updated"].includes(node.localName)), false);
 });
 
 test("project graph lookup failure exposes a retry and retains current source entries", async () => {

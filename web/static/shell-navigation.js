@@ -5,12 +5,12 @@
   let state=null, writes=Promise.resolve();
   const narrow=matchMedia("(max-width:999px)");
   const assets=new Map();
-  function loadAsset(path) {
+  function loadAsset(path, before) {
     if(assets.has(path))return assets.get(path);
     const stylesheet=path.endsWith(".css");
     const element=document.createElement(stylesheet ? "link" : "script");
     if(stylesheet){element.rel="stylesheet";element.href=path;}
-    else element.src=path;
+    else {if(before)element.async=false;element.src=path;}
     const ready=new Promise((resolve,reject)=>{
       element.onload=resolve;
       element.onerror=()=>{
@@ -18,10 +18,20 @@
         element.remove();
         reject(Error(text("无法加载界面资源，请重试。","Could not load an interface resource. Please try again.")));
       };
-      document.head.append(element);
+      if(before)document.head.insertBefore(element,before);
+      else document.head.append(element);
     });
     assets.set(path,ready);
     return ready;
+  }
+  function loadViewAssets(name) {
+    const loads = [];
+    for (const marker of document.querySelectorAll(`template[data-view-assets="${name}"]`)) {
+      for (const asset of marker.content.children) {
+        loads.push(loadAsset(asset.getAttribute("href") || asset.getAttribute("src"), marker));
+      }
+    }
+    return Promise.all(loads);
   }
   async function request(path,method="GET",body) {
     const options={method,cache:"no-store",headers:{Accept:"application/json"}};
@@ -234,6 +244,6 @@
     location.assign(destination);
   }
   function decorateTabs(container,ids){decorateStrip(container,ids,"tabs","tabKey");}
-  window.SciShellLayout={request,ready,save,loadAsset,navigate,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
+  window.SciShellLayout={request,ready,save,loadAsset,loadViewAssets,navigate,top,ordered,decorateTop,decorateTabs,updateNavigation,dismissProjectNav,dismissSessionNav,get state(){return state;}};
   for(const q of [narrow,matchMedia("(min-width:1400px)"),matchMedia("(min-width:760px)")])q.addEventListener("change",()=>window.SciResearch?.updateNav());
 })();

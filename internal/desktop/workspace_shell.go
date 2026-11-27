@@ -36,7 +36,11 @@ var workspaceSurfaces = func() map[string]workspaceSurface {
 		"/api-docs": {name: "api", title: "本机 API"},
 	}
 	for path, surface := range surfaces {
-		surface.page = template.Must(template.ParseFS(web.Assets, "static/workspace-shell.html", "static/"+surface.name+".html"))
+		patterns := []string{"static/workspace-shell.html", "static/" + surface.name + ".html"}
+		if surface.name == "studio" {
+			patterns = append(patterns, "static/partials/studio-*.html")
+		}
+		surface.page = template.Must(template.ParseFS(web.Assets, patterns...))
 		surfaces[path] = surface
 	}
 	return surfaces

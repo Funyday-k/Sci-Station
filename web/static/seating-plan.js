@@ -85,6 +85,7 @@
     figure.style.setProperty("--person-skin", skin);
     figure.style.setProperty("--person-hair", hair);
     figure.style.setProperty("--person-shirt", wardrobe[(variant >>> 5) % wardrobe.length]);
+    /* html-sink: static built-in seating figure SVG artwork (no user data) */
     figure.innerHTML = `
       <ellipse cx="0" cy="-1" rx="18" ry="16" class="chair-shadow"/>
       <rect x="-15.5" y="-21" width="31" height="29" rx="10" class="chair-shell"/>
@@ -101,7 +102,8 @@
     mark.append(svg("rect", {x:-9.6,y:-9.6,width:19.2,height:19.2,rx:6,class:"brand-tile"}));
     const image = svg("image", {x:-7.7,y:-7.7,width:15.4,height:15.4,preserveAspectRatio:"xMidYMid meet"});
     const neutral = svg("g", {class:"seat-model-icon", transform:"translate(-10 -10)"});
-    neutral.innerHTML = window.RoundtableIcons.icon("model");
+    const modelIcon = window.RoundtableIcons.iconNode("model");
+    if (modelIcon) neutral.append(modelIcon);
     mark.append(image, neutral);
     figure.append(mark); group.append(title, figure);
     return {group, figure, mark, title, image, neutral, member, x:0, angle:0};
@@ -114,6 +116,7 @@
     const pan = document.getElementById("seating-pan");
     const left = document.getElementById("seating-left");
     const right = document.getElementById("seating-right");
+    /* html-sink: static built-in tabletop SVG artwork (no user data) */
     root.innerHTML = artwork;
     const geometry = root.querySelectorAll(".table-geometry");
     const props = root.querySelector(".table-objects");

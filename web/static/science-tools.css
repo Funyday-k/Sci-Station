@@ -151,6 +151,29 @@ details>summary {
   margin-top: 12px
 }
 
+.disclosure-body {
+  display: grid;
+  gap: 8px;
+}
+
+.discovery-subgroup {
+  display: grid;
+  gap: 6px;
+}
+
+.field-help {
+  display: block;
+  margin: 2px 0 6px;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+
+.field-error {
+  margin: 6px 0 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
 #references,
 #history {
   max-width: 100%

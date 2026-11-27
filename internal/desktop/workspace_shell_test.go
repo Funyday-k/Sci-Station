@@ -90,7 +90,7 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 			if strings.Contains(page, "settings-mode") {
 				t.Error("settings surface must not use legacy settings-mode body class")
 			}
-			for _, forbidden := range []string{`src="/static/studio.js"`, `src="/static/meeting-board.js"`, `src="/static/seat-mention.js"`, `href="/static/studio.css"`} {
+			for _, forbidden := range []string{`src="/static/studio.js"`, `src="/static/modules/studio/entry.js"`, `src="/static/meeting-board.js"`, `src="/static/seat-mention.js"`, `href="/static/studio.css"`} {
 				if strings.Contains(page, forbidden) {
 					t.Errorf("settings surface must not load studio asset %s", forbidden)
 				}
@@ -124,6 +124,7 @@ func TestWorkspaceShellServesEachDomainInOneLayout(t *testing.T) {
 			!strings.Contains(page, `src="/static/settings.js"`) ||
 			strings.Contains(page, "settings-mode") ||
 			strings.Contains(page, `src="/static/studio.js"`) ||
+			strings.Contains(page, `src="/static/modules/studio/entry.js"`) ||
 			strings.Contains(page, `id="workspace-session-sidebar"`) {
 			t.Errorf("%s: expected isolated settings surface without settings-mode or studio scripts", legacy)
 		}
@@ -334,7 +335,7 @@ func TestPathOnlyTranscriptUsesSavedSpeechWithoutChangingTheArchive(t *testing.T
 			t.Errorf("transcript is missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{`src="/static/studio.js"`, `id="shell-assist"`, `id="run-form"`, dir} {
+	for _, forbidden := range []string{`src="/static/studio.js"`, `src="/static/modules/studio/entry.js"`, `id="shell-assist"`, `id="run-form"`, dir} {
 		if strings.Contains(page, forbidden) {
 			t.Errorf("unexpected transcript content %q", forbidden)
 		}

@@ -171,6 +171,13 @@ body[data-workspace-surface="lab"] .member-editor button.primary { color:var(--a
 #lab-rename-dialog h2 { margin-bottom:12px; }
 #lab-rename-error { color:var(--danger); }
 #lab-rename-error:empty { display:none; }
+.lab-dialog .disclosure { margin: 10px 0; }
+.lab-dialog .disclosure-body { display: grid; gap: 8px; }
+.structured-array-field { display: grid; gap: 6px; }
+.structured-array-label { font-size: var(--text-sm); font-weight: 500; }
+.structured-array-rows { display: grid; gap: 6px; }
+.structured-array-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.field-error { margin: 4px 0 0; color: var(--danger); font-size: var(--text-sm); }
 @container (max-width: 560px) {
   .lab-workspace { --lab-gutter:12px; }
   .lab-timeline > .lab-transcript-width { padding-block:14px; }

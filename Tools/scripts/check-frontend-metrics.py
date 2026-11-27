@@ -754,7 +754,9 @@ def collect_metrics(
             base_control_occurrences=base_control_occurrences,
         )
 
-    for path in sorted(static_dir.glob("*.js")):
+    for path in sorted(static_dir.rglob("*.js")):
+        if "research-vendor" in path.relative_to(static_dir).parts:
+            continue
         rel_path = path.relative_to(root).as_posix()
         _scan_js_sinks(path.read_text(encoding="utf-8"), rel_path, html_sinks)
 

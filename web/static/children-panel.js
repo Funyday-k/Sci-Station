@@ -70,7 +70,7 @@
       node.append(image);
     } else {
       node.classList.add("children-avatar-neutral");
-      node.innerHTML = window.RoundtableIcons.icon("subagent");
+      const svg = window.RoundtableIcons?.iconNode?.("subagent"); if (svg) node.replaceChildren(svg);
     }
     return node;
   }
@@ -94,7 +94,7 @@
     count = el("span", "children-panel-count"); count.setAttribute("aria-live", "polite");
     heading.append(title, count);
     closeButton = el("button", "children-panel-close"); closeButton.type = "button"; closeButton.setAttribute("aria-label", "关闭子代理面板"); closeButton.title = "关闭 · Esc";
-    closeButton.innerHTML = window.RoundtableIcons.icon("close");
+    const closeSvg = window.RoundtableIcons?.iconNode?.("close"); if (closeSvg) closeButton.replaceChildren(closeSvg);
     closeButton.addEventListener("click", () => close()); header.append(heading, closeButton);
     list = el("nav", "children-task-list"); list.setAttribute("aria-label", "选择子代理");
     detail = el("section", "children-task-detail"); detail.id = "children-task-detail";

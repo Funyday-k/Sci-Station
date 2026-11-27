@@ -1,9 +1,22 @@
-"use strict";
-(() => {
+// Native ES module entry point for Roundtable studio (#45).
+import {
+  buildHostMessageArticle,
+  buildTurnMessageArticle,
+  renderActivityBar,
+  setIcon,
+  setSeatChildrenButtonContent,
+  setTurnChildrenButtonContent,
+} from "./dom.js";
+import { renderDiffContent } from "./diff.js";
+import { syncAppearanceFromSettings as applyAppearanceSettings } from "./settings-bridge.js";
+import { modeFollowupKey, modeMaterialIDs, modeMaterialStamp } from "./setup.js";
+import { revealRoomTarget } from "./room.js";
+import { mountComposerCommands as mountStudioComposerCommands } from "./composer.js";
+
   const $ = (id) => document.getElementById(id);
   const paintTextLimit = window.RoundtableInputLimit.paint;
   const legacyNames = { codex: "Codex", cursor: "Cursor" };
-  const { icon, sourceMark: assetFor } = window.RoundtableIcons;
+  const { sourceMark: assetFor } = window.RoundtableIcons;
   function sessionMembers(session = state.session) {
     if (session?.members?.length) return session.members;
     const resolved = state.legacyRosters.get(session?.id)?.members;
@@ -104,21 +117,9 @@
     discussionChoices: new Map(),
     agendaNote: "",
   };
-  const escape = (value) =>
-    String(value ?? "").replace(
-      /[&<>"']/g,
-      (char) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        })[char],
-    );
   const detailText = (value) =>
     typeof value === "string" ? value : value ? JSON.stringify(value) : "";
-  $("dismiss-notice").innerHTML = icon("close");
+  setIcon($("dismiss-notice"), "close");
   function storageGet(key) {
     try {
       return localStorage.getItem(key);
@@ -132,12 +133,23 @@
     } catch (_) {}
   }
   const appearance = window.RoundtableAppearance;
-  function showError(error) {
+  let retryNotice = null;
+  function showError(error, retry = null) {
+    retryNotice = retry;
+    $("retry-connect").textContent = retry
+      ? (window.SciStationI18n?.text("重试", "Retry") ?? "重试")
+      : (window.SciStationI18n?.text("重新连接", "Reconnect") ?? "重新连接");
     $("notice-text").textContent = error.message || String(error);
     $("notice").hidden = false;
   }
   function clearError() {
+    retryNotice = null;
     $("notice").hidden = true;
+  }
+  function retryError() {
+    const retry = retryNotice || boot;
+    clearError();
+    return retry();
   }
   async function api(path, body, poll = null) {
     const response = await fetch(`/api/studio${path}`, {
@@ -412,8 +424,19 @@
       else scroll.scrollTop = position.top;
     });
   }
-  function openChanges(change = null, opener = document.activeElement) {
+  let reviewOpenRequest = 0;
+  async function openChanges(change = null, opener = document.activeElement) {
     if (!state.session || !allChanges().length) return;
+    const id = state.selected, request = ++reviewOpenRequest;
+    try {
+      await window.SciShellLayout.loadViewAssets("files");
+    } catch (error) {
+      if (request === reviewOpenRequest && state.selected === id) showError(error, () => {
+        if (request === reviewOpenRequest && state.selected === id) return openChanges(change, opener);
+      });
+      return;
+    }
+    if (request !== reviewOpenRequest || state.selected !== id || !state.session || !allChanges().length) return;
     if (state.view !== "table") switchView("table");
     window.dispatchEvent(
       new CustomEvent("roundtable:sidepanel-open", { detail: "review" }),
@@ -430,6 +453,7 @@
     $("close-changes").focus({ preventScroll: true });
   }
   function closeChanges(restoreFocus = true) {
+    reviewOpenRequest++;
     if (!state.filePanelOpen) {
       $("files-view").hidden = true;
       return;
@@ -465,7 +489,7 @@
     $("table-view").hidden = false;
     syncBoardPresence();
     if (state.session) schedulePoll();
-    if (!state.selected && !$("create-form").hidden) setup.resume();
+    if (!state.selected && !$("create-form").hidden) setup?.resume();
     renderHeading();
     window.SciShellLayout?.dismissSessionNav(true);
   }
@@ -634,7 +658,7 @@
         String(state.menuSession === session.id),
       );
       more.title = "更多操作";
-      more.innerHTML = icon("more");
+      setIcon(more, "more");
       more.addEventListener("click", (event) => {
         event.stopPropagation();
         openHistoryMenu(session.id, { opener: more });
@@ -772,11 +796,8 @@
     renderHistory();
   }
   function syncAppearanceFromSettings() {
-    const settings = state.settings;
-    if (!settings) return;
-    appearance?.setMode(settings.appearance || "system", true);
-    appearance?.setColorTheme(settings.color_theme || "iris", true);
-    appearance?.setTextSize(settings.text_size || "standard", true);
+    if (!state.settings) return;
+    applyAppearanceSettings(appearance, state.settings);
     renderSeats();
     updateControls();
   }
@@ -794,7 +815,7 @@
   }
   function resetRoomDisclosures() {
     showRoomDrawer();
-    meetingActions.close();
+    meetingActions?.close();
     runCommands.close();
     window.RoundtableOpinions?.close({restoreFocus:false});
     seatMention.setContext();
@@ -842,7 +863,7 @@
     const members = sessionMembers(), session = state.session;
     $("chat-header").hidden = !session;
     if (!session) {
-      seatEditor.update(null, state.writing);
+      seatEditor?.update(null, state.writing);
       return;
     }
     loadLegacyRoster(session);
@@ -863,7 +884,7 @@
           else {
             node.classList.add("neutral-model");
             node.setAttribute("aria-hidden", "true");
-            node.innerHTML = icon("model");
+            setIcon(node, "model");
           }
           return node;
         };
@@ -881,7 +902,7 @@
         }
         const model = document.createElement("div"); model.className = "seat-model";
         model.textContent = [member.model && member.model !== member.label ? member.model : "",
-          member.effort ? window.RoundtableSetup.effortName(member.effort) : ""].filter(Boolean).join(" · ");
+          member.effort ? window.SciModelEffort.label(member.effort) : ""].filter(Boolean).join(" · ");
         model.title = model.textContent;
         copy.append(primary, model);
         identity.append(pic("person-avatar"), copy);
@@ -935,7 +956,7 @@
       if (state.seatKeys[id] !== key) {
         state.seatKeys[id] = key;
         const button = $(`children-open-${id}-all`);
-        button.innerHTML = `${icon("subagent")}<span>子代理${tasks.length ? ` ${tasks.length}` : ""}</span>`;
+        setSeatChildrenButtonContent(button, tasks.length);
         button.dataset.childEntryState = summary?.state || (tasks.length ? "complete" : "empty");
         button.setAttribute("aria-label", `${seatName(id)} 的子代理${summary?.label ? `，${summary.label}` : ""}`);
         button.title = summary?.label || "查看该席位的子代理";
@@ -1018,27 +1039,15 @@
       opener,
     });
   }
-  function memberAvatar({asset:src, model}) {
-    const content = src ? `<img src="${src}" alt="">` : icon("model");
-    return `<span class="message-avatar${src ? "" : " neutral-model"}" aria-hidden="true" title="${escape(model)}">${content}</span>`;
-  }
-  function messageTime(value) {
-    if (!value) return "";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "";
-    return `<time class="message-time" datetime="${escape(value)}" title="${escape(date.toLocaleString("zh-CN"))}">${escape(date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }))}</time>`;
-  }
   function renderMessageBody(article, source, cache) {
     window.SciMarkdown.render(article.querySelector(".message-body"), source, {headingShift:3, cache});
     article.querySelector(".message-header").append(window.SciMarkdown.copyButton(source));
   }
   function hostMessage(text, at, target = "", round = 0, automatic = false) {
-    const article = document.createElement("article");
-    article.className = "message host-message";
-    if (round) article.id = `round-${round}-host`;
     const recipient = target && (round ? sourceIdentity(target, state.session, round).label : seatName(target));
     const label = automatic ? "持续推进 · 下一轮任务" : recipient ? `→ ${recipient}` : "";
-    article.innerHTML = `<span class="message-avatar" aria-hidden="true">${icon(automatic ? "refresh" : "person")}</span><div class="message-content"><header class="message-header">${label ? `<strong>${escape(label)}</strong>` : ""}${messageTime(at)}</header><div class="message-body"></div></div>`;
+    const article = buildHostMessageArticle({ label, at, automatic });
+    if (round) article.id = `round-${round}-host`;
     renderMessageBody(article, text, true);
     return article;
   }
@@ -1142,20 +1151,19 @@
             : a.index - b.index;
         });
       for (const { turn } of turns) {
-        const article = document.createElement("article");
-        article.className = "message agent-message";
-        article.id = `round-${round.number}-${turn.seat}`;
         const speaker = turnIdentity(turn, session, round);
         const showModel = speaker.model && speaker.model !== speaker.label;
-        article.dataset.speakerModel = speaker.model;
-        article.dataset.speakerEffort = speaker.effort;
         const progress =
           turn.status === "running"
             ? "正在工作…"
             : turn.status === "error"
               ? "未完成"
               : "";
-        article.innerHTML = `${memberAvatar(speaker)}<div class="message-content"><header class="message-header"><strong>${escape(speaker.label)}${showModel ? ` · ${escape(speaker.model)}` : ""}</strong>${messageTime(turn.finished_at || turn.started_at)}${progress ? `<span class="message-status ${turn.status === "error" ? "error" : ""}">${progress}</span>` : ""}</header>${turn.text ? `<div class="message-body"></div>` : turn.status === "error" ? "" : `<div class="message-body"><p class="message-placeholder">${turn.status === "pending" ? "等待回应…" : turn.status === "running" ? "正在处理任务…" : "没有返回发言。"}</p></div>`}</div>`;
+        const article = buildTurnMessageArticle({ speaker, showModel, turn, progress });
+        article.className = "message agent-message";
+        article.id = `round-${round.number}-${turn.seat}`;
+        article.dataset.speakerModel = speaker.model;
+        article.dataset.speakerEffort = speaker.effort;
         if (turn.text) renderMessageBody(article, turn.text, turn.status !== "running");
         const events = (session.events || []).filter(
           (event) =>
@@ -1171,7 +1179,7 @@
           const button = document.createElement("button");
           button.type = "button";
           button.className = "button secondary small child-entry";
-          button.innerHTML = `${icon("subagent")}子代理 ${children.length}`;
+          setTurnChildrenButtonContent(button, children.length);
           button.id = `children-open-${turn.seat}-${round.number}`;
           const childSummary = window.RoundtableChildren?.summary(children);
           button.setAttribute("aria-controls", "children-panel");
@@ -1397,6 +1405,9 @@
     $("round-settings").hidden = Boolean(closed);
   }
   function updateControls() {
+    setup?.setBusy(state.writing);
+    if (state.writing) createCommands.close();
+    if (!reportUI) return;
     const running = sessionWorking();
     reportUI.setBusy(state.writing);
     continuousUI.update(state.session);
@@ -1407,7 +1418,6 @@
     $("run-commands").disabled = runLocked;
     runMaterials.setDisabled(runLocked);
     if (runLocked) runCommands.close();
-    if (state.writing) createCommands.close();
     if (state.writing || running) seatMention.setContext();
     $("run-preset").disabled = state.writing || running;
     $("run-phase").disabled = state.writing || running;
@@ -1430,7 +1440,6 @@
     $("run-hint").textContent = running
       ? continuousUI.isActive() ? "持续推进中，记录会自动更新；可随时暂停" : "本轮进行中，记录会自动更新"
       : continuousRequest ? "持续推进由本机服务按限额执行，可随时暂停" : "每次发起推进一轮";
-    setup.setBusy(state.writing);
   }
   function paintRunSubmit() {
     $("run-submit").disabled = state.writing || sessionWorking() || !state.session ||
@@ -1529,8 +1538,8 @@
     activeTab: () => roomTab,
   });
   function clearBoard() {
-    boardPresence.stop();
-    board.clear();
+    boardPresence?.stop();
+    board?.clear();
     boardSourceOpener = null;
     $("board-workspace").hidden = true;
     $("setup-scroll").hidden = !state.draftOpen;
@@ -1543,7 +1552,7 @@
     if (compact === compactWorkspace) return;
     compactWorkspace = compact;
     const keepChat = conversationInUse();
-    setChatVisible(!compactWorkspace || keepChat, {paired: keepChat && board.isDrawing()});
+    setChatVisible(!compactWorkspace || keepChat, {paired: keepChat && board?.isDrawing()});
   }).observe(tableView.closest(".workspace-region"));
   function returnToBoard() {
     if (compactWorkspace || !boardSourceOpener) setChatVisible(false);
@@ -1602,9 +1611,7 @@
     const event = session.events?.at(-1);
     $("activity-bar").hidden = true;
     if (event) {
-      const activity = activityEvent(event);
-      $("activity-bar").innerHTML =
-        `<strong>${escape(activity.owner)}</strong><span>${escape(activity.text)}</span>`;
+      renderActivityBar($("activity-bar"), activityEvent(event));
     }
     const index = state.sessions.findIndex((item) => item.id === session.id);
     const summary = {
@@ -1636,7 +1643,7 @@
     board.render(session, {animateInitial});
     syncBoardPresence();
     if (firstBoard && hadChatFocus && $("room-chat").hidden) $("meeting-board").focus({preventScroll: true});
-    pluginsUI.updateSession(session);
+    pluginsUI?.updateSession(session);
     fileControls();
     const workspaceKey = JSON.stringify([
       allChanges().map((change) => [change.path, change.diff, change.after]),
@@ -1693,16 +1700,19 @@
       return;
     }
     if (!canLeaveFile()) return;
+    if (!board) {
+      try { await prepareRoom(); } catch (error) { showError(error); return; }
+    }
     stopPoll();
     closeChanges(false);
     window.RoundtableChildren?.close({ restoreFocus: false });
     createCommands.close();
-    setup.suspend();
-    window.MeetingAgenda.clear();
-    reportUI.update(null);
+    setup?.suspend();
+    window.MeetingAgenda?.clear();
+    reportUI?.update(null);
     window.ScienceMeeting?.update(null);
     window.SciCLIEdit?.setSession(null);
-    pluginsUI.updateSession(null);
+    pluginsUI?.updateSession(null);
     $("create-form").hidden = true;
     $("draft-project-required").hidden = true;
     $("chat-header").hidden = true;
@@ -1771,7 +1781,7 @@
       paintTextLimit("new-topic");
       renderHistory();
     } else {
-      setup.suspend();
+      setup?.suspend();
       $("draft-project-message").textContent = state.projectListStatus === "loading" ? "正在读取项目…" :
         state.projectListStatus === "failed" ? "暂时无法读取项目" : "该项目当前不可用";
       $("draft-retry-projects").hidden = state.projectListStatus !== "failed";
@@ -1787,6 +1797,10 @@
         return;
       }
     }
+    if (!setup) {
+      prepareSetup().then(() => openDraft(project), showError);
+      return;
+    }
     stopPoll();
     closeChanges(false);
     window.RoundtableChildren?.close({ restoreFocus: false });
@@ -1797,11 +1811,11 @@
     continuousUI.update(null);
     state.draftOpen = true;
     clearBoard();
-    window.MeetingAgenda.clear();
-    reportUI.update(null);
+    window.MeetingAgenda?.clear();
+    reportUI?.update(null);
     window.ScienceMeeting?.update(null);
     window.SciCLIEdit?.setSession(null);
-    pluginsUI.updateSession(null);
+    pluginsUI?.updateSession(null);
     state.file = null;
     state.filesSession = null;
     state.diff = null;
@@ -2334,43 +2348,7 @@
           record.change.path,
         ),
     );
-    let oldLines = 0,
-      newLines = 0;
-    $("diff-content").innerHTML = record.diff
-      ? record.diff
-          .split("\n")
-          .map((line) => {
-            let kind = "";
-            const hunk = line.match(
-              /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/,
-            );
-            if (hunk) {
-              oldLines = hunk[2] === undefined ? 1 : Number(hunk[2]);
-              newLines = hunk[4] === undefined ? 1 : Number(hunk[4]);
-              kind = "diff-header";
-            } else if (oldLines > 0 || newLines > 0) {
-              if (line.startsWith("+")) {
-                kind = "diff-add";
-                newLines--;
-              } else if (line.startsWith("-")) {
-                kind = "diff-remove";
-                oldLines--;
-              } else if (line.startsWith(" ")) {
-                oldLines--;
-                newLines--;
-              } else if (line.startsWith("\\")) kind = "diff-header";
-            } else if (
-              line.startsWith("+++") ||
-              line.startsWith("---") ||
-              line.startsWith("\\ No newline")
-            )
-              kind = "diff-header";
-            return `<span class="${kind}">${escape(line)}\n</span>`;
-          })
-          .join("")
-      : record.loading
-        ? "补丁读取中…"
-        : "暂无可显示的补丁。";
+    renderDiffContent($("diff-content"), record);
     const { change } = record;
     const missingVersions = !change.before || !change.after;
     const missingPatch = !record.loading && !record.diff && (missingVersions || change.before !== change.after);
@@ -2449,6 +2427,9 @@
     updateControls();
     clearError();
     try {
+      // Prepare the room before creating it so an asset retry cannot create a second meeting.
+      await prepareRoom();
+      if (state.rebinding) return;
       const session = await api("/sessions", { topic, ...payload });
       if (state.rebinding) return;
       setup.complete();
@@ -2675,8 +2656,6 @@
 
   $("file-filter").addEventListener("input", renderFiles);
   $("refresh-files").addEventListener("click", refreshWorkspace);
-  for (const button of document.querySelectorAll(".view-tab"))
-    button.addEventListener("click", () => switchView(button.dataset.view));
   $("menu-view-project").addEventListener("click", () =>
     showProjectPath(menuSummary()),
   );
@@ -2720,7 +2699,7 @@
   $("dismiss-notice").addEventListener("click", clearError);
   document.addEventListener("keydown", (event) => {
     if (event.defaultPrevented) return;
-    if (reportUI.isOpen() || pluginsUI.isOpen()) return;
+    if (reportUI?.isOpen() || pluginsUI?.isOpen()) return;
     if ($("project-dialog").open) return;
     if (!$("history-menu").hidden) {
       const items = menuItems(),
@@ -2776,11 +2755,8 @@
     }
   });
   const modeTransfer = window.SciStudioModeTransfer;
-  const modeFollowupKey = id => "sci-station.roundtable-followup.v1."+id;
   const conversationGeneration = id => projects.available().find(project=>project.id===id)?.conversationGeneration || 0;
   const modeText = (zh, en) => window.SciStationI18n?.text(zh,en) ?? zh;
-  const modeMaterialIDs = materials => materials.map(({id}) => id);
-  const modeMaterialStamp = materials => JSON.stringify(modeMaterialIDs(materials));
   let switchingToSingle = false;
   async function modeWorkspace() {
     const response = await fetch("/api/health", {cache:"no-store"});
@@ -2962,8 +2938,28 @@
     };
     panel.hidden = false;
   }
+  let setup, reportUI, board, boardPresence, seatEditor, meetingActions, pluginsUI;
+  async function prepareRoom() {
+    await Promise.all([window.SciShellLayout.loadViewAssets("room"), window.SciShellLayout.loadViewAssets("markdown")]);
+    if (board) return;
+    reportUI = mountReport();
+    board = mountBoard();
+    seatEditor = mountSeatEditor();
+    boardPresence = mountPresence();
+    meetingActions = window.RoundtableActions.mount();
+  }
+  async function prepareSetup() {
+    await window.SciShellLayout.loadViewAssets("setup");
+    setup ??= mountSetup();
+  }
   async function boot() {
     clearError();
+    const entry = new URL(location.href);
+    const linked = entry.searchParams.get("session");
+    try {
+      if (linked) await prepareRoom();
+      else await prepareSetup();
+    } catch (error) { showError(error); return; }
     state.projectListStatus = "loading";
     paintDraftProject();
     const results = await Promise.allSettled([api("/settings"), loadHistory(), projects.load()]);
@@ -2978,8 +2974,6 @@
       $("connection-status").classList.add("offline");
       $("connection-status").textContent = "连接中断";
     }
-    const entry = new URL(location.href);
-    const linked = entry.searchParams.get("session");
     let research = null;
     try {
       research = window.ScienceMeeting?.requestedProject(entry.searchParams.get("project"));
@@ -3006,7 +3000,7 @@
     const failure = results.find(result => result.status === "rejected");
     if (failure) showError(failure.reason);
   }
-  const reportUI = window.RoundtableReport.mount({
+  const mountReport = () => window.RoundtableReport.mount({
     fileChanges: session => closedFileCatalog(session).cited,
     openRevision: change => openChanges(change, $("meeting-report")),
     hasUnsentNote: () => Boolean($("run-note").value.trim() || runMaterials.items().length),
@@ -3046,30 +3040,19 @@
       }
     },
     reveal(target, agenda) {
-      if (state.view !== "table") switchView("table");
-      if (agenda) {
-        if (compactWorkspace) setChatVisible(false);
-        showRoomDrawer("agenda-toggle");
-      } else {
-        openRoomTab("chat");
-      }
-      requestAnimationFrame(() => {
-        if (!target.isConnected) return;
-        if (agenda) target.scrollIntoView({ block: "nearest" });
-        else {
-          const url = new URL(location.href);
-          url.hash = target.id;
-          window.SciStationNav.commitURL(url, "replace");
-          scrollToMessage(target);
-          $("latest-message").hidden = false;
-        }
-        target.tabIndex = -1;
-        target.classList.add("meeting-source-focus");
-        target.focus({ preventScroll: true });
+      revealRoomTarget(target, agenda, {
+        $,
+        state,
+        switchView,
+        compactWorkspace,
+        setChatVisible,
+        showRoomDrawer,
+        openRoomTab,
+        scrollToMessage,
       });
     },
   });
-  const board = window.RoundtableBoard.mount({
+  const mountBoard = () => window.RoundtableBoard.mount({
     root:$("meeting-board"),
     statusRoot:$("chat-board-status"),
     async writeEdit(id, payload) {
@@ -3109,8 +3092,23 @@
     },
     onRetry() { window.MeetingAgenda.retry(); },
   });
-  const pluginsUI = window.RoundtablePlugins.mount({api});
-  const seatEditor = window.RoundtableMemberEditor.mount({
+  async function openPluginTools() {
+    if (pluginsUI || !state.session) return;
+    const id = state.selected;
+    try {
+      await window.SciShellLayout.loadViewAssets("plugins");
+      if (state.selected !== id || !state.session) return;
+      pluginsUI ??= window.RoundtablePlugins.mount({api});
+      pluginsUI.updateSession(state.session);
+      await pluginsUI.openTools();
+    } catch (error) {
+      if (state.selected === id) showError(error, () => {
+        if (state.selected === id) return openPluginTools();
+      });
+    }
+  }
+  $("plugin-tools-open").addEventListener("click", openPluginTools);
+  const mountSeatEditor = () => window.RoundtableMemberEditor.mount({
     loadModels: () => api("/models"),
     write: (id, payload) => api(`/sessions/${encodeURIComponent(id)}/members`, payload),
     acceptSession(session) {
@@ -3120,7 +3118,7 @@
     },
     membersOf: sessionMembers, displayName: seatName,
   });
-  const boardPresence = window.RoundtableBoardPresence.mount(snapshot => {
+  const mountPresence = () => window.RoundtableBoardPresence.mount(snapshot => {
     if (!snapshot || state.selected === snapshot.session_id) board.setPresence(snapshot);
   }, async id => {
     const current = state.session;
@@ -3133,10 +3131,10 @@
     }
   });
   function syncBoardPresence() {
-    boardPresence.sync(state.session, state.view === "table" && !document.hidden);
+    boardPresence?.sync(state.session, state.view === "table" && !document.hidden);
   }
   document.addEventListener("visibilitychange", syncBoardPresence);
-  window.addEventListener("pagehide", boardPresence.stop);
+  window.addEventListener("pagehide", () => boardPresence?.stop());
   window.addEventListener("pageshow", syncBoardPresence);
   window.addEventListener("sci:language", () => {
     if (state.draftOpen) {
@@ -3145,19 +3143,19 @@
     }
     renderHeading();
   });
-  const meetingActions = window.RoundtableActions.mount();
+
   const topicMention = window.RoundtableMention.mount({
-    textarea: $("new-topic"), members: () => setup.mentionMembers(),
+    textarea: $("new-topic"), members: () => setup?.mentionMembers() || [],
     status: $("new-topic-mention-status"), list: $("new-topic-mention-list"),
     describeTarget: label => label + " 将担任首席并起草议程",
     multipleTargetsError: "只能指定一位首席，请保留一个 @目标。",
   });
   const createMaterials = window.RoundtableMaterials.mount({
     root: $("create-materials"), pasteTarget: $("new-topic"),
-    onChange: () => setup.materialsChanged(),
+    onChange: () => setup?.materialsChanged(),
     onError: message => showError(new Error(message)),
   });
-  const setup = window.RoundtableSetup.mount({
+  const mountSetup = () => window.RoundtableSetup.mount({
     api, assetFor, storageGet, storageSet, materials: createMaterials,
     onRosterChange() { topicMention.setContext(); topicMention.updateStatus(); },
   });
@@ -3172,36 +3170,15 @@
   });
   const continuousUI = window.RoundtableContinuous.mount("run", {onToggle() { updateControls(); seatMention.updateStatus(); }});
   function mountComposerCommands(prefix, root, materials, mention, mentionsAvailable, otherCommands) {
-    const continuousToggle = $(prefix + "-continuous-enabled");
-    const runComposer = prefix === "run";
-    return window.RoundtableCommands.mount({
+    return mountStudioComposerCommands({
+      prefix,
       root,
-      button: $(prefix + "-commands"),
-      commands: () => [
-        { label: "添加图片", group: "材料", icon: "image", run: () => materials.pick("image") },
-        { label: "添加文件", group: "材料", icon: "file", run: () => materials.pick("file") },
-        {
-          label: runComposer ? "@ 点名席位" : "@ 指定首席起草议程",
-          group: "讨论", icon: "mention", disabled: !mentionsAvailable(),
-          run: () => mention.open(),
-        },
-        ...otherCommands,
-        {
-          label: continuousToggle.checked ? "关闭持续推进" : "开启持续推进",
-          group: "推进", icon: "continue", disabled: continuousToggle.disabled,
-          run: () => continuousToggle.click(),
-        },
-        {
-          label: "持续推进设置", group: "推进", icon: "sliders",
-          disabled: !continuousToggle.checked || continuousToggle.disabled,
-          run() {
-            $(prefix + "-continuous-options").querySelector("details").open = true;
-            const input = $(prefix + "-continuous-goal");
-            if (runComposer) meetingActions.openSettings(input);
-            else input.focus();
-          },
-        },
-      ],
+      materials,
+      mention,
+      mentionsAvailable,
+      otherCommands,
+      openMeetingSettings: input => meetingActions.openSettings(input),
+      $,
     });
   }
   const createCommands = mountComposerCommands("create", $("create-composer"), createMaterials, topicMention,
@@ -3222,11 +3199,10 @@
     if (state.activeProject !== detail.id && state.session?.project_id !== detail.id) return;
     state.rebinding = true;
     stopPoll();
-    setup.retire();
+    setup?.retire();
     runMaterials.set([]);
     $("run-note").value = "";
   });
   $("draft-retry-projects").addEventListener("click", boot);
-  $("retry-connect").addEventListener("click", boot);
+  $("retry-connect").addEventListener("click", retryError);
   boot();
-})();

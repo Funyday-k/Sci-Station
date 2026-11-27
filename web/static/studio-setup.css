@@ -1,3 +1,77 @@
+/* New Roundtable setup panel (#44). */
+
+.project-disclosure {
+  font-size: var(--text-xs);
+  margin-top: 7px;
+}
+.project-disclosure summary {
+  cursor: pointer;
+  width: max-content;
+}
+.project-disclosure code {
+  font:
+    11px/1.8 ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
+  overflow-wrap: anywhere;
+  display: block;
+  max-width: 600px;
+  margin-top: 5px;
+}
+.stage-layout {
+  max-width: 960px;
+  margin: 0 auto 20px;
+}
+.setup-panel {
+  max-width: 650px;
+  margin: 36px auto 26px;
+}
+.setup-panel label {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+.setup-panel textarea {
+  margin: 0 0 25px;
+  min-height: 150px;
+  max-height: 350px;
+  font-size: var(--text-md);
+}
+@container (max-width: 760px) {
+  .project-disclosure {
+    font-size: var(--text-xs);
+  }
+  .setup-panel {
+    margin-top: 27px;
+  }
+  .setup-panel textarea {
+    font-size: var(--text-md);
+  }
+}
+.chat-header .project-disclosure {
+  margin-top: 4px;
+}
+.stage-layout:not(.is-new) {
+  margin: 0;
+}
+@media (max-height: 650px) {
+  .chat-header .project-disclosure {
+    display: none;
+  }
+}
+.project-disclosure code {
+  max-height: 90px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.setup-section .discussion-access,
+.setup-section .input-limit {
+  display: block;
+  margin-top: 6px;
+}
+
 /* The setup workspace and participant identities share the desktop palette. */
 .setup-panel {
   width: min(100%, 770px);
@@ -63,16 +137,7 @@
 .setup-access strong { font-size: var(--text-xs); font-weight: 600; }
 .setup-access small { font-size: var(--text-xs); line-height: 1.45; color: var(--setup-muted); }
 .setup-access .discussion-access { margin-top: 0; white-space: normal; }
-.continuous-panel { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 7px 9px; background: var(--bg-surface); }
-.continuous-toggle { display: flex; align-items: center; gap: 7px; margin: 0; cursor: pointer; font-size: var(--text-sm); font-weight: 550; }
-.continuous-toggle input { margin: 0; accent-color: var(--accent); }
 .continuous-setup-hint { margin: 3px 0 0 21px; color: var(--setup-muted); font-size: var(--text-xs); line-height: 1.45; }
-.continuous-options { margin-top: 5px; }
-.continuous-options > details > summary, .continuous-checkpoint > summary { cursor: pointer; color: var(--ink-muted); font-size: var(--text-xs); }
-.continuous-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 10px; padding: 7px 0 2px; }
-.continuous-fields label { display: grid; gap: 3px; margin: 0; font-size: var(--text-xs); font-weight: 450; }
-.continuous-fields input, .continuous-fields textarea { width: 100%; min-width: 0; padding: 5px 7px; font-size: var(--text-sm); }
-.continuous-fields textarea { min-height: 42px; max-height: 100px; }
 .setup-panel .setup-footer { margin-top: 15px; }
 .setup-footer .primary { padding-inline: 19px; }
 #member-directory { border: 1px solid var(--line); border-radius: var(--radius-md); margin-bottom: 8px; background: var(--bg-surface); overflow: hidden; }
@@ -142,7 +207,6 @@
 @container (max-width: 700px) {
   #preset-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .chosen-identity { display: grid; gap: 0; }
-  .continuous-fields { grid-template-columns: 1fr; }
 }
 
 .chat-header { overflow: hidden; }

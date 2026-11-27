@@ -68,8 +68,8 @@
   }
 
   function makeFragment(source, {headingShift = 0, breaks = true, allowHTML = false, resolveImage} = {}) {
-    const fragment = document.createDocumentFragment();
     if (!window.marked?.Marked || !window.DOMPurify) {
+      const fragment = document.createDocumentFragment();
       const plain = document.createElement("pre");
       plain.textContent = source;
       fragment.append(plain);
@@ -120,9 +120,8 @@
       },
     });
 
-    // Work in a template before adding anything to the active document.
-    const template = document.createElement("template");
-    template.innerHTML = window.DOMPurify.sanitize(parser.parse(source), {
+    const fragment = window.DOMPurify.sanitize(parser.parse(source), {
+      RETURN_DOM_FRAGMENT:true,
       USE_PROFILES:{html:true},
       SANITIZE_NAMED_PROPS:true,
       ALLOW_DATA_ATTR:false,
@@ -131,7 +130,7 @@
         "script", "video", "audio", "source", "link"],
       FORBID_ATTR:["style", "srcset", "action", "formaction", "ping"],
     });
-    for (const image of template.content.querySelectorAll("img")) {
+    for (const image of fragment.querySelectorAll("img")) {
       const target = resolveImage?.(image.getAttribute("src") || "");
       if (typeof target === "string" && target.startsWith("/api/research/")) {
         image.src = target;
@@ -140,7 +139,7 @@
         image.replaceWith(document.createTextNode(image.alt || "未找到项目图片"));
       }
     }
-    for (const anchor of template.content.querySelectorAll("a")) {
+    for (const anchor of fragment.querySelectorAll("a")) {
       if (/^https?:\/\//i.test(anchor.getAttribute("href") || "")) {
         anchor.target = "_blank";
         anchor.rel = "noopener noreferrer";
@@ -149,7 +148,7 @@
       }
     }
     const pending = [];
-    for (const placeholder of template.content.querySelectorAll("span[data-sci-expression]")) {
+    for (const placeholder of fragment.querySelectorAll("span[data-sci-expression]")) {
       const token = expressions[Number(placeholder.dataset.sciExpression)];
       placeholder.removeAttribute("data-sci-expression");
       if (!token) continue;
@@ -164,7 +163,7 @@
         for (const [placeholder, token] of pending) renderExpression(placeholder, token);
       }, () => {});
     }
-    return {fragment:template.content, cacheable:!pending.length};
+    return {fragment, cacheable:!pending.length};
   }
 
   function render(host, value, options = {}) {

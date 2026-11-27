@@ -14,7 +14,7 @@
     button.type = "button";
     button.title = label;
     button.setAttribute("aria-label", label);
-    button.innerHTML = icon(glyph);
+    const svg = window.RoundtableIcons?.iconNode?.(glyph); if (svg) button.replaceChildren(svg);
     return button;
   };
   const textButton = (label, kind = "secondary") => {
@@ -483,7 +483,7 @@
         const toggle = iconButton("chevronRight", group.name, "project-rail-chevron");
         toggle.disabled = !group.sessions.length;
         const folder = element("span", "project-rail-folder");
-        folder.innerHTML = icon("folder");
+        const svg = window.RoundtableIcons?.iconNode?.("folder"); if (svg) folder.replaceChildren(svg);
         const name = element("span", "project-rail-name", group.name);
         if (!group.unscoped) trigger.append(folder);
         trigger.append(name);

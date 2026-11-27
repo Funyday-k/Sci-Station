@@ -21,48 +21,56 @@
 
     <main class="workspace-page">
       <header class="workspace-page-heading"><h1 id="heading"></h1><label><span data-en="Project">当前项目</span> <select id="project"></select></label></header>
-      <p id="status" role="status"></p>
+      <p id="status" role="status" aria-live="polite"></p>
       <section id="discover" hidden>
         <a id="discovery-return-lab" hidden><svg class="ui-icon" data-ui-icon="chevronLeft" aria-hidden="true"></svg><span data-en="Back to chat tools">返回对话工具</span></a>
         <a id="readingTaskOpen" hidden>打开阅读待办</a>
         <details class="panel"><summary>文献库阅读队列</summary><div id="readingQueue"></div></details>
         <form id="search">
-          <label for="source">文献来源</label>
-          <select id="source">
+          <label for="source" data-en="Literature source">文献来源</label>
+          <select id="source" aria-describedby="source-help">
             <option value="arxiv">arXiv</option>
             <option id="graphSource" value="graph">项目核心论文的图谱关系</option>
             <option value="library">近期馆藏</option>
             <option value="daily">每日文献文件</option>
           </select>
-          <label id="dailyFeedField" hidden>JSON 或 JSONL 文献文件 <input type="file" id="dailyFeed" accept=".json,.jsonl,application/json"></label>
-          <label for="expr">关键词或 arXiv 检索式</label>
-          <input id="expr" placeholder="例如 cat:astro-ph.CO AND all:evaporation" maxlength="350">
-          <div class="discovery-controls">
-            <label>arXiv 分类 <input type="text" id="categories" placeholder="例如 hep-ex, astro-ph.HE"></label>
-            <label class="check"><input type="checkbox" id="crossList" checked> 包含交叉收录</label>
-            <label>推荐篇数 <input type="number" id="topK" min="1" max="100" value="24" required></label>
-          </div>
-          <details class="discovery-options">
-            <summary>排序参考论文</summary>
-            <label for="references">从当前文献库选择</label>
-            <select id="references" multiple size="4"></select>
-          </details>
-          <details class="discovery-options" id="aiSettings">
-            <summary>AI 检索与推荐说明</summary>
-            <div class="line"><label for="aiModel">Magpie 模型</label><select id="aiModel"><option value="">关闭</option></select>
-              <button id="loadModels" type="button">读取模型</button></div>
-          </details>
-          <details class="discovery-options">
-            <summary>当前范围的推荐设置</summary>
-            <div class="discovery-controls">
-              <label>候选上限 <input id="maxCandidates" type="number" min="1" max="500" value="100"></label>
-              <label>近期馆藏回溯天数 <input id="libraryDays" type="number" min="1" max="3650" value="60"></label>
+          <small id="source-help" class="field-help" data-en="Select arXiv, project citation graph, recent library additions, or a local daily JSON/JSONL feed.">选择 arXiv、项目图谱、近期馆藏或本地每日文献文件。</small>
+          <label id="dailyFeedField" for="dailyFeed" hidden>JSON 或 JSONL 文献文件 <input type="file" id="dailyFeed" accept=".json,.jsonl,application/json"></label>
+          <label for="expr" data-en="Keywords or arXiv query">关键词或 arXiv 检索式</label>
+          <input id="expr" placeholder="例如 cat:astro-ph.CO AND all:evaporation" maxlength="350" aria-describedby="expr-help">
+          <small id="expr-help" class="field-help" data-en="Enter keywords or an arXiv query expression; leave empty to use category or reference ranking.">输入主题关键词或 arXiv 检索式；留空时按分类或参考论文排序。</small>
+          <details id="discovery-advanced" class="disclosure discovery-options">
+            <summary data-en="Advanced">高级选项</summary>
+            <div class="disclosure-body">
+              <div class="discovery-controls">
+                <label for="categories">arXiv 分类 <input type="text" id="categories" placeholder="例如 hep-ex, astro-ph.HE" aria-describedby="categories-help"></label>
+                <label class="check" for="crossList"><input type="checkbox" id="crossList" checked> 包含交叉收录</label>
+                <label for="topK">推荐篇数 <input type="number" id="topK" min="1" max="100" value="24" required aria-describedby="topK-help"></label>
+              </div>
+              <small id="categories-help" class="field-help" data-en="Comma-separated arXiv subject classes to narrow results.">逗号分隔的 arXiv 学科分类代码。</small>
+              <small id="topK-help" class="field-help" data-en="Number of ranked papers to return (1–100; default 24).">返回排序后的候选篇数（1–100，默认 24）。</small>
+              <div class="discovery-subgroup">
+                <label for="references" data-en="Ranking reference papers">排序参考论文（从当前文献库选择）</label>
+                <select id="references" multiple size="4" aria-describedby="references-help"></select>
+                <small id="references-help" class="field-help" data-en="Selected library papers boost closely related candidates.">勾选馆藏论文以提升相关候选的排序权重。</small>
+              </div>
+              <div class="discovery-subgroup" id="aiSettings">
+                <div class="line"><label for="aiModel">AI 检索与推荐说明（Magpie 模型）</label><select id="aiModel" aria-describedby="aiModel-help"><option value="">关闭</option></select>
+                  <button id="loadModels" type="button">读取模型</button></div>
+                <small id="aiModel-help" class="field-help" data-en="Optional Magpie model for generating query expansions and short relevance notes.">可选：选择 Magpie 模型辅助扩展检索式与生成推荐理由。</small>
+              </div>
+              <div class="discovery-controls">
+                <label for="maxCandidates">候选上限 <input id="maxCandidates" type="number" min="1" max="500" value="100" aria-describedby="discovery-limits-help"></label>
+                <label for="libraryDays">近期馆藏回溯天数 <input id="libraryDays" type="number" min="1" max="3650" value="60" aria-describedby="discovery-limits-help"></label>
+              </div>
+              <small id="discovery-limits-help" class="field-help" data-en="Defaults: 100 max candidates, 60-day recent library window.">默认值：候选上限 100，近期馆藏回溯 60 天。</small>
+              <div class="actions">
+                <button id="saveDiscoveryDefaults" type="button">保存当前来源与筛选为默认</button>
+                <button id="useDiscoveryDefaults" type="button">应用已保存的默认设置</button>
+              </div>
             </div>
-            <div class="actions">
-              <button id="saveDiscoveryDefaults" type="button">保存当前来源与筛选为默认</button>
-              <button id="useDiscoveryDefaults" type="button">应用已保存的默认设置</button>
-            </div>
           </details>
+          <p id="discovery-error" class="field-error" role="alert" aria-live="polite" hidden></p>
           <button class="primary" id="submitSearch" disabled>检索</button>
         </form>
         <div class="discovery-controls">
@@ -84,10 +92,10 @@
         <div id="articles"></div>
       </section>
       <section id="convert" hidden>
-        <div class="panel"><label for="paper">文献库论文</label><select id="paper"></select>
-          <p id="bodyState" role="status"></p>
+        <div class="panel"><label for="paper">文献库论文</label><select id="paper" aria-describedby="bodyState"></select>
+          <p id="bodyState" role="status" aria-live="polite"></p>
           <div class="line"><label for="bodyFile">已获得的论文正文（.md 或 .markdown）</label><input id="bodyFile" type="file" accept=".md,.markdown"><button id="importBody">导入论文正文</button><button id="existingBody" hidden>查看已存正文</button></div>
-          <div id="bodyLocator" hidden><p id="bodyLocatorStatus" role="status"></p><pre id="bodyLocatorText" class="paper-body-excerpt"></pre>
+          <div id="bodyLocator" hidden><p id="bodyLocatorStatus" role="status" aria-live="polite"></p><pre id="bodyLocatorText" class="paper-body-excerpt"></pre>
             <div id="bodyLocatorFigures" class="paper-body-figures" hidden></div></div>
           <details id="bodyFull" hidden><summary>论文正文预览</summary>
             <div id="bodyQuality"></div>
@@ -99,18 +107,25 @@
           <div class="bar">
             <h2>本地文本</h2><button id="local">提取为 Markdown</button>
           </div>
-          <p>按页提取可选择的原文，保留页码。扫描件可使用下方的 MinerU 转换。</p>
+          <p>按页提取可选择的原文，保留页码。扫描件可使用下方的 MinerU 高级转换选项。</p>
         </div>
-        <details class="panel">
-          <summary>MinerU 公式、表格和扫描件转换</summary>
-          <p>开始转换会将所选 PDF 上传到 MinerU。工作区会保存任务编号，重新打开后可恢复同一份 PDF 的任务。</p>
-          <label for="token">MinerU API Token</label><input type="password" id="token" autocomplete="off" spellcheck="false" maxlength="4096">
-          <div id="minerCredentialActions" hidden>
-            <p id="minerCredentialState" role="status"></p>
-            <div class="line"><button type="button" id="minerSave">保存到钥匙串</button><button type="button" id="minerClear">清除已保存的 Token</button></div>
+        <details id="mineru-advanced" class="disclosure panel">
+          <summary data-en="Advanced · MinerU conversion">高级选项 · MinerU 公式、表格和扫描件转换</summary>
+          <div class="disclosure-body">
+            <p class="field-help">开始转换会将所选 PDF 上传到 MinerU。工作区会保存任务编号，重新打开后可恢复同一份 PDF 的任务。</p>
+            <label for="token">MinerU API Token</label>
+            <input type="password" id="token" autocomplete="off" spellcheck="false" maxlength="4096" aria-describedby="token-help">
+            <small id="token-help" class="field-help" data-en="Stored as a macOS Keychain reference; saved tokens are never echoed back into this field.">以 macOS 钥匙串引用保存；已保存的 Token 绝不回显明文，留空即使用已保存凭据。</small>
+            <div id="minerCredentialActions" hidden>
+              <p id="minerCredentialState" role="status" aria-live="polite"></p>
+              <div class="line"><button type="button" id="minerSave">保存到钥匙串</button><button type="button" id="minerClear">清除已保存的 Token</button></div>
+            </div>
+            <label for="batch">转换任务编号</label>
+            <input id="batch" placeholder="开始后自动填写，也可以恢复已有任务" aria-describedby="batch-help">
+            <small id="batch-help" class="field-help" data-en="Leave empty to start a new job, or paste an existing batch ID to check status or resume.">留空以创建新任务，或粘贴已有任务编号以恢复进度。</small>
+            <p id="mineru-error" class="field-error" role="alert" aria-live="polite" hidden></p>
+            <div class="line"><button id="remote">上传或恢复转换</button><button id="checkBatch">查看进度</button><button id="getZip">下载完整转换包</button></div>
           </div>
-          <label for="batch">转换任务编号</label><input id="batch" placeholder="开始后自动填写，也可以恢复已有任务">
-          <div class="line"><button id="remote">上传或恢复转换</button><button id="checkBatch">查看进度</button><button id="getZip">下载完整转换包</button></div>
         </details>
         <div id="result" class="panel" hidden>
           <div id="resultQuality"></div>

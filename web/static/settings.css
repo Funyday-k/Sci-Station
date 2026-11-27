@@ -123,6 +123,23 @@ body[data-workspace-surface="settings"] {
   padding: var(--space-2) 14px var(--space-3);
 }
 
+.settings-advanced {
+  margin-top: var(--space-3);
+}
+
+.setting-help {
+  margin: 2px 0 0;
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.settings-error {
+  margin: var(--space-2) 0 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
 .settings-check-row {
   display: inline-flex;
   align-items: center;

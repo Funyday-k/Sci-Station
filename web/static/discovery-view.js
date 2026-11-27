@@ -18,6 +18,7 @@
   function create({$, req, make, button, busy, tell, trigger = ""}) {
     let project = "", generation = 0, ready = false;
     let feed = {}, papers = [], queue = [];
+    let modelChoices = [["", "关闭"]];
     const current = operation => operation.generation === generation;
     const context = () => ({target: project, generation, run: feed.id, source: feed.source, feedSource: feed.daily_feed_source});
 
@@ -62,10 +63,49 @@
       }
     }
 
+    function selectModel(id) {
+      const choices = modelChoices.some(([value]) => value === id) ? modelChoices : [...modelChoices, [id, id]];
+      options($("aiModel"), choices, [id]);
+      $("aiModel").value = id;
+    }
+
+    function setDiscoveryError(message, reveal = true) {
+      const error = $("discovery-error");
+      error.textContent = message;
+      error.hidden = !message;
+      if (message && reveal) $("discovery-advanced").open = true;
+    }
+
+    async function submitDiscovery(route, payload, operation) {
+      try {
+        const result = await req(scope(route, operation.target), payload);
+        if (current(operation) && feed.id === operation.run) return result;
+      } catch (error) {
+        if (!current(operation) || feed.id !== operation.run) return;
+        if (error.status === 400) setDiscoveryError(error.message);
+        throw error;
+      }
+    }
+
     function showSourceFields() {
       const source = $("source").value;
       $("aiSettings").hidden = source !== "arxiv";
       $("dailyFeedField").hidden = source !== "daily";
+    }
+
+    function hasNonDefaultDiscovery(defaults = {}) {
+      return (Array.isArray(defaults.categories) && defaults.categories.length > 0) ||
+        defaults.cross_list === false ||
+        (defaults.top_k !== undefined && Number(defaults.top_k) !== 24) ||
+        (defaults.max_daily_candidates !== undefined && Number(defaults.max_daily_candidates) !== 100) ||
+        (defaults.library_recent_days !== undefined && Number(defaults.library_recent_days) !== 60) ||
+        Boolean($("references").selectedOptions?.length) ||
+        Boolean($("aiModel")?.value);
+    }
+
+    function syncDiscoveryDisclosure(defaults = {}) {
+      const details = $("discovery-advanced");
+      if (details) details.open = hasNonDefaultDiscovery(defaults);
     }
 
     function applyDefaults(defaults = {}) {
@@ -76,6 +116,7 @@
       $("maxCandidates").value = defaults.max_daily_candidates || 100;
       $("libraryDays").value = defaults.library_recent_days || 60;
       showSourceFields();
+      syncDiscoveryDisclosure(defaults);
     }
 
     function categories() {
@@ -85,7 +126,7 @@
     function applyRun(result, resetFilter) {
       feed = result;
       $("expr").value = feed.query || "";
-      applyDefaults({...feed.defaults, ...feed});
+      const merged = {...feed.defaults, ...feed};
       $("graphSource").disabled = !project;
       if (resetFilter) $("filter").value = "all";
       options($("history"), [["", "选择检索记录"], ...(feed.history || []).map(run => [
@@ -93,6 +134,9 @@
       ])], [feed.id || ""]);
       $("archiveRun").disabled = !feed.id;
       options($("references"), papers.map(p => [p.id, p.title]), feed.reference_ids || []);
+      selectModel(feed.ai_model || "");
+      applyDefaults(merged);
+      setDiscoveryError("");
       const queries = (feed.atom_queries || []).map(q => "arXiv 检索式 " + q);
       const source = feed.id ? [feed.trigger === "lab" ? "AI Lab" : "", sourceLabels[feed.source], feed.daily_feed_source?.name,
         feed.updated ? new Date(feed.updated).toLocaleString() : "", ...queries]
@@ -112,7 +156,6 @@
       $("readingQueue").replaceChildren();
       tell("");
       $("submitSearch").disabled = true;
-      $("aiModel").value = "";
       $("dailyFeed").value = "";
       $("readingTaskOpen").hidden = true;
       try {
@@ -299,13 +342,14 @@
     $("saveDiscoveryDefaults").onclick = () => {
       if (!ready) return;
       const operation = context();
+      setDiscoveryError("");
       return busy($("saveDiscoveryDefaults"), withCurrent(operation, async () => {
-        const result = await req(scope("tools/discovery-defaults", operation.target), {
+        const result = await submitDiscovery("tools/discovery-defaults", {
           source: $("source").value, categories: categories(), cross_list: $("crossList").checked,
           top_k: Number($("topK").value), max_daily_candidates: Number($("maxCandidates").value),
           library_recent_days: Number($("libraryDays").value)
-        });
-        if (current(operation)) {
+        }, operation);
+        if (result) {
           feed.defaults = result.defaults;
           tell("已保存当前范围的推荐设置");
         }
@@ -335,16 +379,28 @@
       const response = await fetch("/api/studio/models");
       if (!response.ok) throw Error("无法读取 Magpie 模型目录");
       const catalog = await response.json();
-      options($("aiModel"), [["", "关闭"], ...catalog.models.map(model => [model.id, model.label || model.id])], [$("aiModel").value]);
+      modelChoices = [["", "关闭"], ...catalog.models.map(model => [model.id, model.label || model.id])];
+      selectModel($("aiModel").value);
     });
+    $("search").addEventListener?.("invalid", event => {
+      setDiscoveryError(event.target.validationMessage, $("discovery-advanced").contains(event.target));
+    }, true);
     $("search").onsubmit = event => {
       event.preventDefault();
+      setDiscoveryError("");
       if (!ready) return;
+      const topK = Number($("topK").value);
+      if (!Number.isFinite(topK) || topK < 1 || topK > 100) {
+        const msg = "推荐篇数须在 1 到 100 之间。";
+        setDiscoveryError(msg);
+        tell(msg);
+        return;
+      }
       const operation = context();
       const payload = {
         source: $("source").value, query: $("expr").value,
         categories: categories(),
-        cross_list: $("crossList").checked, top_k: Number($("topK").value),
+        cross_list: $("crossList").checked, top_k: topK,
         reference_ids: Array.from($("references").selectedOptions || [], option => option.value)
       };
       if (trigger) payload.trigger = trigger;
@@ -362,8 +418,8 @@
           if (!current(operation)) return;
         }
         tell(payload.source === "arxiv" ? "正在查询 arXiv…" : "正在整理本地候选…");
-        const result = await req(scope("tools/discover", operation.target), payload);
-        if (current(operation)) {
+        const result = await submitDiscovery("tools/discover", payload, operation);
+        if (result) {
           applyRun(result, true);
           if (payload.source === "daily") $("dailyFeed").value = "";
           tell("已更新检索结果");
