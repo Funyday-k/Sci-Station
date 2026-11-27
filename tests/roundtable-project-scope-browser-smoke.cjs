@@ -275,10 +275,17 @@ async function main() {
     await ui.visible("#chat-header");
     await ui.click("[data-ai-mode='single']");
     await ui.visible("#studio-mode-overflow-summary","13");
-    await ui.click('#studio-mode-overflow button[value="cancel"]');
-    await eventually(() => ui.evaluate(() => !document.querySelector("#studio-mode-overflow").open),"cancel left the source in place");
-    assert.equal(await ui.evaluate(() => new URL(location.href).searchParams.get("session")),templateRoom.id);
-    await ui.click("[data-ai-mode='single']");
+    const afterCancel = await ui.evaluate(async () => {
+      const dialog = document.querySelector("#studio-mode-overflow");
+      dialog.querySelector('button[value="cancel"]').click();
+      const closed = !dialog.open;
+      const session = new URL(location.href).searchParams.get("session");
+      // Retry after the submit handler can settle, before the queued close event.
+      await Promise.resolve();
+      document.querySelector("[data-ai-mode='single']").click();
+      return {closed,session,reopened:dialog.open};
+    });
+    assert.deepEqual(afterCancel,{closed:true,session:templateRoom.id,reopened:true});
     await ui.visible("#studio-mode-overflow-summary","13");
     await ui.click('#studio-mode-overflow button[value="text-only"]');
     await ui.click("#lab-transfer-preview");

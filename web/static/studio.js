@@ -3114,13 +3114,21 @@
   }
   function chooseModeTextOnly(count) {
     const dialog = $("studio-mode-overflow");
-    dialog.returnValue = "";
     $("studio-mode-overflow-summary").textContent = modeText(
       `当前共有 ${count} 份附件，切换时最多可带入 ${modeTransfer.materialLimit} 份。选择仅带入文本，附件会留在原圆桌和草稿。`,
       `There are ${count} attachments. A mode switch can carry up to ${modeTransfer.materialLimit}. If you continue with text only, the attachments stay in the original Roundtable and its draft.`);
+    dialog.showModal();
     return new Promise(resolve => {
-      dialog.addEventListener("close", () => resolve(dialog.returnValue === "text-only"), {once:true});
-      dialog.showModal();
+      const listeners = new AbortController();
+      // The browser queues the close event after the dialog is already hidden.
+      function finish(event, choice) {
+        event.preventDefault();
+        listeners.abort();
+        dialog.close(choice);
+        resolve(choice === "text-only");
+      }
+      dialog.addEventListener("submit", event => finish(event,event.submitter?.value || ""), {signal:listeners.signal});
+      dialog.addEventListener("cancel", event => finish(event,""), {signal:listeners.signal});
     });
   }
   function clearModeFollowup(id) {
