@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -151,11 +152,14 @@ func TestAITransferChecksPendingAndCommittedMaterials(t *testing.T) {
 	updated.Excerpt = excerpt(b)
 	changeRecord(updated)
 	check(403, room.ID, a, old.ID)
-	changeMeetingProjectDirectory(t, host, projectA, replacement)
-	check(403, room.ID, a, neutral.ID)
-
 	unchanged, err := engine.Get(room.ID)
 	if err != nil || len(unchanged.Materials) != 1 || unchanged.Materials[0] != old || len(unchanged.Rounds) != 0 {
 		t.Fatalf("preflight changed the meeting: %+v, %v", unchanged, err)
 	}
+	changeMeetingProjectDirectory(t, host, projectA, replacement)
+	check(404, room.ID, a, neutral.ID)
+	if _, err := engine.Get(room.ID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old transfer source survived reassignment: %v", err)
+	}
+
 }

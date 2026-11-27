@@ -2,6 +2,7 @@ package meeting
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -46,7 +47,13 @@ func TestProjectResetRemovesOnlyConfirmedHistory(t *testing.T) {
 	other := create(ProjectScope{ID: "beta", Directory: otherDir}, []string{"cursor"}, shared.ID)
 	global := create(ProjectScope{Global: true}, []string{"codex"})
 	legacy := &Session{ID: newID(), Topic: "Legacy synthetic session", Project: firstDir, Seats: []string{"codex"}, Materials: []Material{retained}}
-	if err := e.locked(func() error { return e.save(legacy) }); err != nil {
+	// Seed a record produced by an older writer. The current engine treats
+	// path-only records as read-only from the first time it opens them.
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.dir, legacy.ID+".json"), raw, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(e.dir, "materials", changed.ID, "original"), []byte("a replacement with no matching owner"), 0600); err != nil {
