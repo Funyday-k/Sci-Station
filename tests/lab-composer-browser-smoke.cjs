@@ -46,6 +46,7 @@ async function main(binary) {
     await closeServer(probe);
     app=await launch(binary,port,path.join(base,"root"),environment,"serve");
     const project=await app.request("/api/research/projects","POST",{name:"Composer project"},201);
+    const other=await app.request("/api/research/projects","POST",{name:"Other composer scope"},201);
     await app.request("/api/research/projects/"+project.id+"/notes","POST",{title:"Composer note",body:"Known project excerpt."},201);
     browser=await chromium.launch({headless:true,executablePath:process.env.SCI_STATION_SMOKE_CHROME});
     const page=await browser.newPage({locale:"zh-CN",viewport:{width:1440,height:900}});
@@ -95,7 +96,7 @@ async function main(binary) {
     await $("lab-tool-back").click();
     await $("lab-tools-directory").waitFor();
     await page.locator("#lab-tools-dialog footer [data-lab-close]").click();
-    assert.equal(await page.locator(":focus").getAttribute("id"),"lab-tools");
+    await page.waitForFunction(()=>document.activeElement?.id==="lab-tools");
 
     await $("lab-attach").click();
     assert.ok(await $("lab-file-picker").isVisible());
@@ -131,7 +132,7 @@ async function main(binary) {
     for(const label of ["composer-fixture.txt","Composer note"]) await $("local-list").getByText(label,{exact:true}).waitFor();
     await page.waitForFunction(()=>document.getElementById("lab-effort").getAttribute("aria-valuetext")==="极高");
     assert.equal(await $("lab-model").inputValue(),"fixture/second");
-    assert.equal(await $("question").inputValue(),question);
+    await page.waitForFunction(value=>document.getElementById("question").value===value,question);
     assert.equal(calls.length,0);
     await $("lab-start").click();
     await page.getByText("Fixture reply from fixture/second",{exact:true}).waitFor();
@@ -163,6 +164,19 @@ async function main(binary) {
     assert.ok(messageBottom.y + messageBottom.height <= 621);
     assert.ok(messageBottom.y > 360);
     await screenshot("lab-existing-900x620");
+
+    await $("lab-attach").click();
+    const pendingPicker=page.waitForEvent("filechooser");
+    await $("lab-file-picker").click();
+    const stalePicker=await pendingPicker;
+    let uploads=0;
+    page.on("request",request=>{if(request.method()==="POST" && request.url().endsWith("/api/studio/materials")) uploads++;});
+    await $("project").evaluate((scope,id)=>{scope.value=id;scope.dispatchEvent(new Event("change",{bubbles:true}));},other.id);
+    await stalePicker.setFiles({name:"stale-scope.txt",mimeType:"text/plain",buffer:Buffer.from("Never link this to the other project.")});
+    await page.locator("#lab-materials-dialog footer [data-lab-close]").click();
+    assert.equal(await $("project").inputValue(),other.id);
+    assert.equal(await $("local-list").getByText("stale-scope.txt",{exact:true}).count(),0);
+    assert.equal(uploads,0);
     console.log("Single chat composer layout, plugin navigation, catalog-backed keyboard slider, draft return with local file and project excerpt, and effective settings for the first and following turns passed.");
   } finally {releaseFollowup();await browser?.close();await app?.close();await closeServer(gateway);await rm(base,{recursive:true,force:true});}
 }

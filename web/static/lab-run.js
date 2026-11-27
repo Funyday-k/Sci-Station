@@ -584,12 +584,13 @@
       filePickerOwner=draftOwner();
       $("lab-file-input").click();
     });
+    $("lab-file-input").addEventListener("cancel",()=>{filePickerOwner=null;});
     $("lab-file-input").addEventListener("change",async event=>{
-      const owner=filePickerOwner || draftOwner();
+      const owner=filePickerOwner;
       filePickerOwner=null;
       const files=Array.from(event.target.files || []);
       event.target.value="";
-      if(!files.length || !owner.project || !ownsDraft(owner) || $("lab-file-picker").disabled) return;
+      if(!files.length || !owner?.project || !ownsDraft(owner) || $("lab-file-picker").disabled) return;
       const available=12-selected.length-importedMaterials.length;
       if(files.length>available) {
         tell(text("每次最多加入 12 份附件。请减少选中的文件。","Attach no more than 12 files or excerpts at a time. Select fewer files."));
