@@ -44,6 +44,16 @@ async function exercise(origin,project,meeting,file,phase) {
     const settled=async(text)=>panel.locator("#cli-edit-run-detail").filter({hasText:text}).waitFor();
     await panel.locator("#cli-edit-capabilities").getByText(/cursor.*no per-file/).waitFor();
     await propose("declined fixture");
+    const header = await panel.locator(".diff-view > .diff-header").first().evaluate(row => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--ink-muted)";
+      row.append(probe);
+      const styles = [getComputedStyle(row).display, getComputedStyle(row.querySelector(".diff-text")).color, getComputedStyle(probe).color];
+      probe.remove();
+      return styles;
+    });
+    assert.equal(header[0], "grid");
+    assert.equal(header[1], header[2], "the CLI header text inherits the muted row ink");
     await panel.locator("#cli-edit-decline").click();
     await settled("CLI 已报告拒绝文件变更");
     assert.equal(await readFile(file,"utf8"),"initial fixture\n");

@@ -277,9 +277,12 @@ async function launch(binary, port, dataDir, env, mode, quit, inherited = proces
       if (child.exitCode === null && child.signalCode === null) {
         if (!quit || !await quit().then(() => true, () => false)) child.kill("SIGTERM");
       }
-      const [exitCode, signal] = await Promise.race([exited, delay(18000, null, {ref: false})]) || [];
-      if (exitCode === undefined && signal === undefined) child.kill("SIGKILL");
-      assert.equal(exitCode, 0, "fixture workstation did not exit cleanly");
+      let result = await Promise.race([exited, delay(18000, null, {ref: false})]);
+      if (!result) {
+        child.kill("SIGKILL");
+        result = await exited;
+      }
+      assert.equal(result[0], 0, "fixture workstation did not exit cleanly");
     }
   };
   try {
@@ -599,6 +602,46 @@ async function reopenProjectSources(app, ui, evidence) {
   }
 }
 
+async function reviewDocumentDiff(app, ui, {meetingPath, meeting, project}) {
+  const file = {path: "synthetic-review.md"};
+  const first = await app.request(meetingPath + "/file", "POST", {...file, version:"missing", text:"Original fixture line.\n"});
+  const longLine = "Updated fixture text. ".repeat(100);
+  await app.request(meetingPath + "/file", "POST", {...file, version:first.after, text:longLine + "\n"});
+  const session = await app.request(meetingPath);
+  await app.request(meetingPath + "/report", "POST", {
+    action:"finish", expected_round:session.rounds.length, agenda_version:session.agenda_version || 0
+  }, 202);
+  await ui.navigate(app.origin + "/studio?" + new URLSearchParams({project:project.id, session:meeting.id, view:"files"}));
+  await ui.visible("#diff-content.document-diff > .diff-add", "Updated fixture text.");
+  const rows = await ui.evaluate(() => {
+    const pre = document.querySelector("#diff-content");
+    const probe = document.createElement("span");
+    pre.append(probe);
+    const token = name => {
+      probe.style.color = "var(--" + name + ")";
+      return getComputedStyle(probe).color;
+    };
+    const rows = ["add", "remove", "header"].map(kind => {
+      const row = pre.querySelector(".diff-" + kind);
+      const style = getComputedStyle(row);
+      return {
+        kind, display:style.display, fillsRow:Math.abs(row.getBoundingClientRect().width - pre.clientWidth) <= 1,
+        ink:style.color, expectedInk:token(kind === "header" ? "ink-muted" : "diff-" + kind + "-ink"),
+        background:style.backgroundColor, expectedBackground:token(kind === "header" ? "bg-subtle" : "diff-" + kind + "-bg"),
+        wraps:style.whiteSpace === "pre-wrap" && pre.scrollWidth <= pre.clientWidth + 1
+      };
+    });
+    probe.remove();
+    return rows;
+  });
+  for (const row of rows) {
+    assert.equal(row.display, "block", row.kind);
+    assert.ok(row.fillsRow && row.wraps, row.kind + " should fill the line and wrap within the document");
+    assert.equal(row.ink, row.expectedInk, row.kind);
+    assert.equal(row.background, row.expectedBackground, row.kind);
+  }
+}
+
 async function main() {
   assert.ok(process.platform === "darwin", "This smoke uses the macOS PDFKit adapter");
   const native = process.argv[2] === "--native";
@@ -656,6 +699,8 @@ async function main() {
     await reopenProjectSources(workstation, browser.ui, projectReviewed);
     if (browser.errors) assert.deepEqual(browser.errors, []);
     console.log("PASS restart and Wiki/material links highlight the original selected ranges");
+    await reviewDocumentDiff(workstation, browser.ui, fixture);
+    console.log("PASS Studio document diffs wrap and highlight full rows");
   } catch (error) {
     failure = error;
     if (browser) {

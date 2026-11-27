@@ -492,7 +492,14 @@ dialog::backdrop {
   unicode-bidi: plaintext;
 }
 
-.diff-line {
+.diff-add,
+.diff-remove,
+.diff-header {
+  display: block;
+  min-width: max-content;
+}
+
+.diff-view .diff-line {
   display: grid;
   grid-template-columns: 2ch minmax(0, 1fr);
   gap: var(--space-2);
@@ -512,7 +519,6 @@ dialog::backdrop {
 .diff-code,
 .diff-text {
   white-space: pre;
-  color: var(--ink-primary);
 }
 
 .diff-context {
@@ -526,6 +532,7 @@ dialog::backdrop {
 }
 
 .diff-add {
+  color: var(--diff-add-ink);
   background: var(--diff-add-bg);
   border-inline-start-color: var(--diff-add-border);
 }
@@ -534,23 +541,14 @@ dialog::backdrop {
   color: var(--diff-add-gutter);
 }
 
-.diff-add .diff-code,
-.diff-add .diff-text {
-  color: var(--diff-add-ink);
-}
-
 .diff-remove {
+  color: var(--diff-remove-ink);
   background: var(--diff-remove-bg);
   border-inline-start-color: var(--diff-remove-border);
 }
 
 .diff-remove .diff-gutter {
   color: var(--diff-remove-gutter);
-}
-
-.diff-remove .diff-code,
-.diff-remove .diff-text {
-  color: var(--diff-remove-ink);
 }
 
 .diff-hunk {
