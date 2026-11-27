@@ -241,7 +241,10 @@ func (s *PaperLibrary) PDFPath(id string) (string, error) {
 }
 func decodePaperRecord(id string, data []byte) (Paper, error) {
 	var p Paper
-	if err := json.Unmarshal(data, &p); err != nil || p.ID != id || p.Revision < 1 ||
+	if err := decodeResearchRecord(data, &p); err != nil {
+		return Paper{}, fmt.Errorf("无法读取文献记录 %s.json: %w", id, err)
+	}
+	if p.ID != id || p.Revision < 1 ||
 		(p.CollectionID != "" && !validID(p.CollectionID)) || validatePaperLinks(&p.PaperMetadata) != nil {
 		return Paper{}, fmt.Errorf("无法读取文献记录 %s.json", id)
 	}
@@ -385,7 +388,7 @@ func (s *PaperLibrary) saveWithRecordLock(p Paper) error {
 			return fmt.Errorf("%w：文献集合不存在", errInvalidPaper)
 		}
 	}
-	body, err := json.Marshal(p)
+	body, err := json.Marshal(paperRecord{SchemaVersion: researchRecordSchemaVersion, Paper: p})
 	if err != nil {
 		return err
 	}

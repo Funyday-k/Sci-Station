@@ -176,7 +176,10 @@ func New(dir string) (*Service, error) {
 			return nil, err
 		}
 		var d projectData
-		if err = json.Unmarshal(b, &d); err != nil || d.Project.ID != id || d.Project.Revision < 1 || d.Notes == nil || d.Tasks == nil || d.Materials == nil || d.NoteKeys == nil || d.TaskKeys == nil {
+		if err = decodeResearchRecord(b, &d); err != nil {
+			return nil, fmt.Errorf("科研项目文件无法读取 %q: %w", name, err)
+		}
+		if d.Project.ID != id || d.Project.Revision < 1 || d.Notes == nil || d.Tasks == nil || d.Materials == nil || d.NoteKeys == nil || d.TaskKeys == nil {
 			return nil, fmt.Errorf("科研项目文件无法读取 %q", name)
 		}
 		d.disk = b
@@ -262,7 +265,7 @@ func (s *Service) commit(d projectData) error {
 	if (exists && !bytes.Equal(old.disk, disk)) || (!exists && err == nil) {
 		return errProjectRecordChanged
 	}
-	b, err := json.Marshal(d)
+	b, err := json.Marshal(projectRecord{SchemaVersion: researchRecordSchemaVersion, projectData: d})
 	if err != nil {
 		return err
 	}
