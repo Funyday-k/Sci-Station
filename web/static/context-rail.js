@@ -14,10 +14,10 @@
   const reader=()=>document.body.dataset.workspaceSurface==="reader";
   const narrow=matchMedia("(max-width:999px)");
   let selectedObject=null, requestedMode=null, requestedRoute="", returnFocus=null;
-  const projectNames=new Map();
+  const projectRecords=new Map();
   let context, draftContext, key="", generation=0, room=null, busy=false, models=[], poll=0;
   let catalogScope="", moduleEnabled=false, runLookup="";
-  const projectOf=c=>({id:c.project,global:!c.project});
+  const projectOf=c=>({id:c.project,global:!c.project,conversationGeneration:c.projectGeneration});
   const storage={
     get(key){try{return sessionStorage.getItem(key);}catch{return null;}},
     set(key,value){try{if(value)sessionStorage.setItem(key,value);else sessionStorage.removeItem(key);}catch{}}
@@ -58,14 +58,21 @@
       [text("标签","Tags"),note.tags?.join(", ")],
       [text("别名","Aliases"),note.aliases?.join(", ")]
     ] : [];
-    return {project,projectName:data?.project?.name || projectNames.get(project) || "",facts:facts.filter(([,value])=>Boolean(value)), path:url.pathname,view, paper:paper?.id || "",
+    const item=data?.project || projectRecords.get(project);
+    return {project,projectGeneration:project ? item ? item.conversationGeneration || 0 : null : 0,
+      projectName:item?.name || "",facts:facts.filter(([,value])=>Boolean(value)), path:url.pathname,view, paper:paper?.id || "",
       visiblePaperIds:project && data?.view==="papers" ? window.SciResearch.library?.visiblePaperIds?.() : undefined,
       note:note?.id || "",task:task?.id || "",meeting:params.get("session") || "", title:title || "",
       page:paper?.page || 0, quote:paper?.quote || noteExcerpt, citation:paper?.citation || null};
   }
-  function draftKey(c){return "sci.shell.draft."+JSON.stringify([c.project,c.path,c.view,c.paper,c.note,c.task,c.meeting]);}
-  function roomPointer(project,id){
-    const key="sci.shell.conversation."+project;
+  function draftKey(c){
+    if(c.projectGeneration===null)return "";
+    const scope=[c.project,c.path,c.view,c.paper,c.note,c.task,c.meeting];
+    if(c.projectGeneration)scope.push(c.projectGeneration);
+    return "sci.shell.draft."+JSON.stringify(scope);
+  }
+  function roomPointer(c,id){
+    const key="sci.shell.conversation."+c.project+(c.projectGeneration ? ":"+c.projectGeneration : "");
     try{
       if(id===undefined)return localStorage.getItem(key);
       if(id)localStorage.setItem(key,id);else localStorage.removeItem(key);
@@ -92,16 +99,16 @@
     const next=contextOf(), nextKey=draftKey(next);
     const route=panelRoute();
     if(requestedRoute!==route){requestedMode=null;requestedRoute=route;returnFocus=null;}
-    if(next.project && !next.projectName && !projectNames.has(next.project)){
-      projectNames.set(next.project,"");
+    if(next.projectGeneration===null && !projectRecords.has(next.project)){
+      projectRecords.set(next.project,null);
       req("/api/research/projects/"+encodeURIComponent(next.project)).then(p=>{
-        projectNames.set(next.project,p.name);if(context?.project===next.project)update();
+        projectRecords.set(next.project,p);if(context?.project===next.project)update();
       }).catch(()=>{});
     }
-    const changedScope=context?.project!==next.project;
+    const changedScope=context?.project!==next.project || context.projectGeneration!==next.projectGeneration;
     if(nextKey!==key){
       rememberDraft(); key=nextKey;draftContext=null;node("rail-prompt").value="";
-      try{const old=JSON.parse(storage.get(key));if(old?.context?.project===next.project){node("rail-prompt").value=old.value;draftContext=old.context;}}catch{}
+      try{const old=key && JSON.parse(storage.get(key));if(old?.context?.project===next.project){node("rail-prompt").value=old.value;draftContext={...old.context,projectGeneration:next.projectGeneration};}}catch{}
     }
     context=next;
     if(changedScope){generation++;clearTimeout(poll);room=null;busy=false;runLookup="";catalogScope="";moduleEnabled=false;status("");}
@@ -186,8 +193,9 @@
         node("rail-prompt").value=prompt;rememberDraft();drawAI();node("rail-prompt").focus();
         if(i===1 && node("rail-model").value && !busy)return send();
       });
-      b.disabled=busy || (i>0 && !context.quote);return b;
+      b.disabled=busy || c.projectGeneration===null || (i>0 && !context.quote);return b;
     }));
+    node("rail-prompt").disabled=c.projectGeneration===null;
     node("rail-send").disabled=busy || !moduleEnabled || (!room && !node("rail-model").value) || Boolean(room && (!["ready","partial"].includes(room.status) || room.lab_thread?.archived_at));
     node("rail-new").hidden=!room;node("rail-new").disabled=busy;
     node("rail-stop").hidden=room?.status!=="running";
@@ -219,7 +227,8 @@
     node("rail-transcript").replaceChildren(...turns);
   }
   async function loadScope() {
-    const project=context.project,id=project || "@global",ticket=generation;
+    const c=context, project=c.project,id=project || "@global",ticket=generation;
+    if(c.projectGeneration===null)return;
     if(catalogScope===id)return;
     catalogScope=id;
     try {
@@ -227,7 +236,7 @@
       if(ticket!==generation)return;
       moduleEnabled=window.SciStationModules.isEnabled(config,"ai-lab");
       if(!moduleEnabled){status(text("AI 实验室模块已停用。","AI Lab is disabled."));drawAI();return;}
-      const saved=roomPointer(project);
+      const saved=roomPointer(c);
       if(saved)await readRoom(saved,ticket);
       if(!models.length){
         const catalog=await req("/api/studio/models");
@@ -250,12 +259,12 @@
     runLookup=id;
     let snapshot;
     try{snapshot=await req("/api/studio/sessions/"+encodeURIComponent(id));}
-    catch(error){if(error.status===404 && ticket===generation){roomPointer(context.project,"");room=null;drawAI();return;}throw error;}
+    catch(error){if(error.status===404 && ticket===generation){roomPointer(context,"");room=null;drawAI();return;}throw error;}
     if(ticket!==generation || runLookup!==id)return;
     const runs=await loadRun();
     if(ticket!==generation || runLookup!==id)return;
     if(!runs.ownsRun(snapshot,projectOf(context))){
-      roomPointer(context.project,"");runLookup="";room=null;
+      roomPointer(context,"");runLookup="";room=null;
       status(text("已清除不属于当前项目的会话位置。","Cleared a conversation pointer belonging to another project."));drawAI();return;
     }
     room=snapshot;drawAI();
@@ -264,7 +273,8 @@
   }
   async function send() {
     const c=draftContext || context, prompt=node("rail-prompt").value.trim(), ticket=generation, submittedKey=key;
-    if(!prompt || busy || !moduleEnabled || !window.SciStationNav.aiAvailable(c.project) || c.project!==context.project || room && (!["ready","partial"].includes(room.status) || room.lab_thread?.archived_at))return;
+    if(!prompt || busy || !moduleEnabled || !window.SciStationNav.aiAvailable(c.project) || c.project!==context.project ||
+        c.projectGeneration!==context.projectGeneration || room && (!["ready","partial"].includes(room.status) || room.lab_thread?.archived_at))return;
     const model=node("rail-model").value, effort=node("rail-effort").value;
     if(!room && (!model || !effort))return;
     busy=true;status("");drawAI();
@@ -291,8 +301,8 @@
       const followUp=Boolean(run);
       if(!run){
         run=await runs.createSingle(req,project,message,{model,effort},"review",prepared || []);
-        roomPointer(c.project,run.id);
         if(ticket!==generation)return;
+        roomPointer(c,run.id);
         room=run;
       }
       const started=await runs.advance(req,run,followUp?message:"",followUp?prepared || []:[]);
@@ -345,7 +355,7 @@
   node("rail-model").onchange=()=>{effortOptions();drawAI();};
   node("rail-send").onclick=send;
   node("rail-retry").onclick=()=>{catalogScope="";status("");loadScope();};
-  node("rail-new").onclick=()=>{clearTimeout(poll);runLookup="";room=null;roomPointer(context.project,"");status("");drawAI();};
+  node("rail-new").onclick=()=>{clearTimeout(poll);runLookup="";room=null;roomPointer(context,"");status("");drawAI();};
   node("rail-stop").onclick=async()=>{
     if(!room || busy)return;
     const id=room.id,ticket=generation;
@@ -366,6 +376,12 @@
     e.preventDefault();toggle("inspector");
   });
   window.SciContextRail={update,selectObject,show:showMode,toggle,close:closePanel,pin:pinPanel};
+  window.addEventListener("sci:project-conversations-reset",({detail})=>{
+    projectRecords.delete(detail.id);
+    if(context?.project!==detail.id)return;
+    generation++;clearTimeout(poll);room=null;busy=false;moduleEnabled=false;
+    key="";draftContext=null;node("rail-prompt").value="";
+  });
   narrow.addEventListener("change",update);
   window.addEventListener("sci:shell-layout",update);window.addEventListener("sci:language",update);
   document.addEventListener("DOMContentLoaded",()=>{update();new MutationObserver(update).observe(document.querySelector("title"),{childList:true});});

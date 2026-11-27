@@ -21,11 +21,13 @@
     const form = $("create-form");
     const continuous = window.RoundtableContinuous.mount("create", {storageGet, storageSet});
     const draftsKey = "studio.setup-drafts.v1";
-    let drafts = {};
-    try {
-      const stored = JSON.parse(storageGet(draftsKey) || "{}");
-      if (stored && typeof stored === "object" && !Array.isArray(stored)) drafts = stored;
-    } catch (_) {}
+    function readDrafts() {
+      try {
+        const stored = JSON.parse(storageGet(draftsKey) || "{}");
+        if (stored && typeof stored === "object" && !Array.isArray(stored)) return stored;
+      } catch (_) {}
+      return {};
+    }
     let draftKey = null, scope = null, members = [], preset = "work", selectionTouched = false;
     let lastDraftSeat = 0;
     let models = [], modelIndex = new Map(), defaultModel = "", loading = false, issue = "", writing = false;
@@ -34,6 +36,7 @@
 
     function save() {
       if (draftKey === null) return;
+      const drafts = readDrafts();
       drafts[draftKey] = {topic: $("new-topic").value, members, preset, selectionTouched, lastDraftSeat};
       const attachments = materials?.ready() || [];
       if (attachments.length) {
@@ -294,17 +297,18 @@
       return true;
     }
     function open(project) {
-      const key = project.id || project.path;
+      const key = (project.id || project.path) + (project.conversationGeneration ? ":"+project.conversationGeneration : "");
       if (draftKey === key) return;
       save();
       draftKey = key;
       scope = project.global ? {scope: "global"} :
         (project.id ? {project_id: project.id} : {project: project.path});
+      if(project.conversationGeneration) scope.conversationGeneration=project.conversationGeneration;
       $("create-project-access").textContent = project.global
         ? (window.SciStationI18n?.text("此会话无项目文件权限", "This session has no project file access") ?? "此会话无项目文件权限")
         : (window.SciStationI18n?.text("讨论仅读取项目文件", "Discussion has read-only access to project files") ?? "讨论仅读取项目文件");
       continuous.open(key);
-      const draft = drafts[key] || {};
+      const draft = readDrafts()[key] || {};
       members = restoreMembers(draft.members, draft.lastDraftSeat);
       preset = presetCards.some(([id]) => id === draft.preset) ? draft.preset : "work";
       selectionTouched = !!draft.selectionTouched;
@@ -324,6 +328,7 @@
     }
     function complete() {
       if (draftKey !== null) {
+        const drafts = readDrafts();
         delete drafts[draftKey]; storageSet(draftsKey, JSON.stringify(drafts));
       }
       continuous.complete();
@@ -331,6 +336,14 @@
       materials?.reset();
       onRosterChange?.();
       setDirectory(false);
+    }
+    function retire() {
+      draftKey = null;
+      scope = null;
+      continuous.open(null);
+      materials?.reset();
+      $("new-topic").value = "";
+      form.inert = true;
     }
     function payload(target = "") {
       const chief = members.find(member => target === "seat-" + member.draftSeat);
@@ -371,7 +384,7 @@
       if (!$("table-view").hidden && !form.hidden) refresh();
     });
     window.addEventListener("sci:language", () => { if (draftKey !== null) paintMembers(); });
-    return { open, suspend, complete, setBusy, payload, canSubmit, mentionMembers, applyLabPreset,
+    return { open, suspend, complete, retire, setBusy, payload, canSubmit, mentionMembers, applyLabPreset,
       materialsChanged() { save(); paintStatus(); },
       resume:() => { if (!directoryLoaded && !loading) refresh(); } };
   }

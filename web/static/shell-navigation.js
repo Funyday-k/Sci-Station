@@ -29,7 +29,7 @@
     const response=await fetch(path,options);
     if(response.status===204)return null;
     const result=await response.json();
-    if(!response.ok){const error=Error(result.error?.message || result.error || text("本机服务未能完成操作","Local service request failed"));error.status=response.status;throw error;}
+    if(!response.ok){const error=Error(result.error?.message || result.error || text("本机服务未能完成操作","Local service request failed"));error.status=response.status;error.code=result.code;throw error;}
     return result;
   }
   function updated(value) {
@@ -194,7 +194,7 @@
     if (!compactPanel) return;
     if (event.target.closest("#presets button,[data-settings-page]")) {
       dismissPanel(compactPanel, true);
-    } else if (!event.target.closest("#workspace-sidebar,#workspace-session-sidebar,#workspace-nav-toggle,#workspace-session-toggle,#project-row-menu,#project-editor,#history-menu")) {
+    } else if (!event.target.closest("#workspace-sidebar,#workspace-session-sidebar,#workspace-nav-toggle,#workspace-session-toggle,#project-row-menu,#history-menu,dialog")) {
       dismissPanel(compactPanel, false);
     }
   });

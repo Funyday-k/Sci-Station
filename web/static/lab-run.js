@@ -32,6 +32,7 @@
 
   function createSingle(req, project, topic, member, preset, materials) {
     const scope = project.global ? {scope:"global"} : {projectId:project.id};
+    if(project.conversationGeneration) scope.conversationGeneration=project.conversationGeneration;
     return req(studio+"sessions","POST",{...scope,topic,
       members:[member],preset,material_ids:materials.map(m=>m.id),start_agenda_draft:false});
   }
@@ -101,6 +102,7 @@
   function draftURL(project, id = "") {
     if (!project) return "";
     const query = scopeQuery(project);
+    if(project.conversationGeneration) query.set("conversationGeneration",project.conversationGeneration);
     if (id) query.set("thread", id);
     return "/api/research/lab/draft?" + query;
   }
@@ -116,7 +118,7 @@
       if (!record) return Promise.resolve();
       clearTimeout(record.timer);
       const work = record.pending.catch(() => {}).then(async () => {
-        if (record.text === record.confirmed) return;
+        if (record.retired || record.text === record.confirmed) return;
         if (record.revision === null) throw Error("无法读取草稿版本");
         const value = record.text;
         const draft = await req(record.url, "PUT", {text:value, revision:record.revision});
@@ -182,7 +184,11 @@
       }
       return flush();
     }
-    return {select, save, capture:() => current, consume,
+    function retire() {
+      for(const record of saved.values()) {record.retired=true;clearTimeout(record.timer);}
+      current=null;saved.clear();input.value="";input.disabled=true;
+    }
+    return {select, save, retire, capture:() => current, consume,
       unsaved:() => [...saved.values()].some(record => record.text !== record.confirmed)};
   }
 
@@ -193,7 +199,7 @@
     const recentRooms=new Map();
     let visibleRoom=null, searchState=null, renameTarget=null, painted="", scrollOnOpen=false;
     let history = [], active = "", pollTimer = 0, models = [], modelFlight=null, previewSequence = 0;
-    let importedMaterials=[], restoringDraft=null, legacyMember=null, compositionReady=false, defaultModel="";
+    let importedMaterials=[], restoringDraft=null, legacyMember=null, compositionReady=false, defaultModel="", retired=false;
     let filePickerOwner=null, fileBatch=null;
     const effortChoices=new Map();
     const reasoning=window.SciModelEffort.bind($("lab-effort"),$("lab-effort-value"),effort=>{
@@ -251,7 +257,7 @@
     function restoreAttachments() {
       const owner=project, thread=active, token=generation;
       compositionReady=Boolean(owner);
-      const pending=owner ? restoreModeDraft(owner.id,thread) : null;
+      const pending=owner ? restoreModeDraft(owner.id,thread,owner.conversationGeneration || 0) : null;
       restoringDraft=pending;
       if(!pending) return;
       const current=()=>generation===token && active===thread && restoringDraft===pending;
@@ -277,7 +283,7 @@
     }
     function rememberComposition() {
       if(!project || !compositionReady || restoringDraft) return true;
-      try { return rememberDraft(project.id,active,compositionState()); }
+      try { return rememberDraft(project.id,active,compositionState(),project.conversationGeneration || 0); }
       catch(error) {tell(error.message);return false;}
     }
     function resetComposition() {
@@ -292,7 +298,7 @@
       const running=visibleRoom?.status==="running";
       const writable=Boolean(!active || (visibleRoom && !archived && ["ready","partial"].includes(visibleRoom.status)));
       const scopeReady=scopeAvailable();
-      const enabled=scopeReady && window.SciStationModules.isEnabled(enabledModules,"ai-lab");
+      const enabled=!retired && scopeReady && window.SciStationModules.isEnabled(enabledModules,"ai-lab");
       const sending=Boolean($("lab-start").dataset.labBusy || $("lab-resume").dataset.labBusy);
       const canAttach=writable && enabled && !restoringDraft && !sending;
       $("lab-workspace").dataset.labState=active ? "conversation" : "new";
@@ -382,6 +388,7 @@
       $("lab-attachments").hidden=!rows.length && !currentResource();
     }
     async function selectProject(next, sessions) {
+      if(retired) return;
       rememberComposition();
       const token=++generation, requested=new URL(location.href).searchParams.get("run");
       stopFileUpload();
@@ -965,7 +972,7 @@
       ["lab-discard-question-draft",questionDraft,$("question")],
       ["lab-discard-reply-draft",replyDraft,$("lab-reply")],
     ]) bind(id,async()=>{draft.consume(draft.capture(),input.value);await draft.save();});
-    window.addEventListener("pagehide",()=>{rememberComposition();void questionDraft.save();void replyDraft.save();});
+    window.addEventListener("pagehide",()=>{if(!retired){rememberComposition();void questionDraft.save();void replyDraft.save();}});
     bind("local-find",()=>findSources());bind("local-search-more",()=>findSources(true));
     bind("local-rebuild",()=>runProjectSearch("",true));bind("local-rebuild-source",()=>runProjectSearch("",true,true));
     $("local-search-stop").onclick=()=>searchState?.controller?.abort();
@@ -987,13 +994,14 @@
     }
     drawLanguage();window.addEventListener("sci:language",drawLanguage);
     async function importTransfer(transfer, message) {
-      if(active || !project || project.id!==transfer.projectId || !window.SciStationModules.isEnabled(enabledModules,"ai-lab")) {
+      if(retired || active || !project || project.id!==transfer.projectId ||
+          (project.conversationGeneration || 0)!==(transfer.projectGeneration || 0) || !window.SciStationModules.isEnabled(enabledModules,"ai-lab")) {
         throw Error(text("请在同一范围内打开新对话。","Open a new chat in the same scope."));
       }
       const owner=project;
       await questionDraft.select(owner);
       if(restoringDraft) await restoringDraft;
-      if(project!==owner || active || $("question").disabled) throw Error(text("尚不能写入当前草稿。","The current draft is unavailable."));
+      if(retired || project!==owner || active || $("question").disabled) throw Error(text("尚不能写入当前草稿。","The current draft is unavailable."));
       const prior=$("question").value;
       const next=[prior,message].filter(Boolean).join("\n\n");
       if(chars(next).length>2500) throw Error(text("合并后超过 2,500 字。请缩短转入内容或先整理已有草稿。","The combined draft exceeds 2,500 characters. Shorten the import or edit the existing draft first."));
@@ -1003,7 +1011,12 @@
       $("question").dispatchEvent(new Event("input",{bubbles:true}));
       importedMaterials=materials;displaySelected();
     }
-    return {selectProject,updateComposer,ensureModels,compositionState,rememberComposition,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
+    function retireProject(id) {
+      if(project?.id!==id) return;
+      retired=true;generation++;clearTimeout(pollTimer);stopFileUpload();
+      questionDraft.retire();replyDraft.retire();resetComposition();updateComposer();
+    }
+    return {selectProject,updateComposer,ensureModels,compositionState,rememberComposition,importTransfer,retireProject,activeRoom:()=>visibleRoom,activeThread:()=>active,
       restoringDraft:()=>Boolean(restoringDraft),
       hasUnsavedInput:()=>Boolean(fileBatch || questionDraft.unsaved() || replyDraft.unsaved()),
       handoffDraftStamp:()=>JSON.stringify([active,selected.map(item=>item.citation),importedMaterials.map(item=>item.id),currentResource()]),

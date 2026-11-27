@@ -35,7 +35,7 @@
     find("[data-submit]").textContent=editing?text("保存更改","Save changes"):text("创建项目","Create project");
     find("[data-path]").textContent=folder || text("默认使用 Sci-Station 管理的本地目录。","Sci-Station manages the local folder by default.");
     find("[data-folder]").hidden=Boolean(project?.managedDirectory);
-    find("[data-folder]").textContent=editing?text("重新授权文件夹…","Grant folder access again…"):text("选择已有文件夹…","Choose an existing folder…");
+    find("[data-folder]").textContent=editing?text("重新选取项目文件夹…","Choose project folder again…"):text("选择已有文件夹…","Choose an existing folder…");
     find("[data-revoke]").hidden=!project?.directoryGrant || project.managedDirectory;
     find("[data-archive]").hidden=!editing;
   }
@@ -104,16 +104,107 @@
       await notifyChanged(item,creating);dialog.close();
     });
   };
-  async function updateFolder(path){
-    project=await request("/api/research/projects/"+encodeURIComponent(project.id)+"/directory","POST",{revision:project.revision,path});
-    folder=project.path;controls();await notifyChanged(project);
+  const resetPrefix="sci-station.project-conversation-reset.";
+  const seenResets=new Map();
+  function storedJSON(value) {
+    try {return JSON.parse(value);} catch {return null;}
   }
-  find("[data-folder]").onclick=()=>perform(async()=>{
-    const picked=await request("/api/studio/pick-project","POST",{});
-    if(!picked.path)return;
-    if(project)await updateFolder(picked.path);
-    else{folder=picked.path;controls();}
+  function confirmReset(item, path) {
+    const confirmation=document.getElementById("project-directory-reset");
+    confirmation.querySelector("h2").textContent=text(`切换「${item.name}」的项目文件夹？`,`Switch the project folder for “${item.name}”?`);
+    confirmation.querySelector("#project-directory-reset-path").textContent=path;
+    confirmation.returnValue="cancel";
+    confirmation.showModal();
+    return new Promise(resolve=>confirmation.addEventListener("close",()=>resolve(confirmation.returnValue==="reset"),{once:true}));
+  }
+  function purgeDrafts(id, next) {
+    const older=value=>Number(value || 0)<next;
+    const encoded=encodeURIComponent(id), oldScope=key=>key===id || (key.startsWith(id+":") && older(key.slice(id.length+1)));
+    const railDraftPrefix="sci.shell.draft.", railPointerPrefix="sci.shell.conversation.";
+    const notePrefix="sci-station.meeting-note."+id+".";
+    try {
+      for(const key of Object.keys(sessionStorage)) {
+        if(key.startsWith("sci-station.lab-mode-draft.v1:"+encoded+":")) {
+          if(older(key.split(":")[4])) sessionStorage.removeItem(key);
+        } else if(key.startsWith(railDraftPrefix)) {
+          const scope=storedJSON(key.slice(railDraftPrefix.length));
+          if(Array.isArray(scope) && scope[0]===id && older(scope[7])) sessionStorage.removeItem(key);
+        } else if(key.startsWith("sci-station.roundtable-followup.v1.") ||
+          ["sci-station.paper-handoff","sci-station.lab-handoff","sci-station.roundtable-to-lab.v1","sci-station.lab-to-roundtable.v1"].includes(key)) {
+          const draft=storedJSON(sessionStorage.getItem(key));
+          if(draft?.projectId===id && older(draft.projectGeneration)) sessionStorage.removeItem(key);
+        }
+      }
+    } catch {}
+    try {
+      for(const key of ["studio.setup-drafts.v1","studio.continuous-drafts.v1"]) {
+        const drafts=storedJSON(localStorage.getItem(key));
+        if(!drafts || typeof drafts!=="object" || Array.isArray(drafts)) continue;
+        const expired=Object.keys(drafts).filter(oldScope);
+        if(expired.length) {
+          for(const scope of expired) delete drafts[scope];
+          localStorage.setItem(key,JSON.stringify(drafts));
+        }
+      }
+      for(const key of Object.keys(localStorage)) {
+        if(key.startsWith(railPointerPrefix) && oldScope(key.slice(railPointerPrefix.length))) localStorage.removeItem(key);
+        if(key.startsWith(notePrefix) && older(storedJSON(localStorage.getItem(key))?.projectGeneration)) localStorage.removeItem(key);
+      }
+    } catch {}
+  }
+  function applyReset(id, next) {
+    seenResets.set(id,next);
+    purgeDrafts(id,next);
+    window.dispatchEvent(new CustomEvent("sci:project-conversations-reset",{detail:{id,generation:next}}));
+    const url=new URL(location.href);
+    if(url.searchParams.get("project")!==id || nav.isSettings(url)) return false;
+    for(const name of ["run","session","fromLab","fromRoundtable","tools"]) url.searchParams.delete(name);
+    location.replace(url);
+    return true;
+  }
+  window.addEventListener("storage",event=>{
+    if(event.key?.startsWith(resetPrefix) && Number(event.newValue)>Number(event.oldValue || 0)) {
+      const id=event.key.slice(resetPrefix.length);
+      if(!applyReset(id,Number(event.newValue))) void notifyChanged({id}).catch(()=>{});
+    }
   });
+  function observeResets(persisted) {
+    try {
+      for(const key of Object.keys(localStorage).filter(key=>key.startsWith(resetPrefix))) {
+        const id=key.slice(resetPrefix.length), next=Number(localStorage.getItem(key));
+        if(persisted && next>(seenResets.get(id) || 0)) applyReset(id,next);
+        else seenResets.set(id,next);
+      }
+    } catch {}
+  }
+  observeResets(false);
+  window.addEventListener("pageshow",event=>{if(event.persisted) observeResets(true);});
+  async function updateFolder(path){
+    const previous=project, endpoint="/api/research/projects/"+encodeURIComponent(previous.id)+"/directory";
+    const input={revision:previous.revision,path};
+    try { project=await request(endpoint,"POST",input); }
+    catch(error) {
+      if(error.status!==409 || error.code!=="confirmation_required") throw error;
+      if(!await confirmReset(previous,path)) return;
+      project=await request(endpoint,"POST",{...input,resetConversations:true});
+    }
+    folder=project.path; controls();
+    const next=project.conversationGeneration || 0;
+    if(next>(previous.conversationGeneration || 0)) {
+      try {localStorage.setItem(resetPrefix+project.id,String(next));} catch {}
+      if(applyReset(project.id,next))return;
+    }
+    await notifyChanged(project);
+  }
+  find("[data-folder]").onclick=async()=>{
+    await perform(async()=>{
+      const picked=await request("/api/studio/pick-project","POST",{});
+      if(!picked.path)return;
+      if(project)await updateFolder(picked.path);
+      else{folder=picked.path;controls();}
+    });
+    if(dialog.open) find("[data-folder]").focus();
+  };
   find("[data-revoke]").onclick=()=>perform(()=>updateFolder(""));
   find("[data-archive]").onclick=()=>perform(async()=>{
     if(!project || !window.confirm(text("将项目归档并保留本地文件夹？","Archive this project and keep its local folder?")+"\n"+project.name))return;
