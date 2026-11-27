@@ -61,16 +61,14 @@
     <script src="/static/children-panel.js" defer></script>
 {{end}}
 {{define "sidebar"}}
-<aside class="sidebar" id="studio-session-sidebar" aria-label="项目与圆桌">
-
-
+<aside class="sidebar" id="studio-session-sidebar" aria-labelledby="studio-history-title">
         <button id="new-session" class="button secondary new-button">
           <svg class="ui-icon" data-ui-icon="plus" width="16" height="16" aria-hidden="true"></svg>新建圆桌
         </button>
         <div class="history-label">
-          <h2>项目</h2>
+          <h2 id="studio-history-title" data-en="Roundtable sessions">圆桌会话</h2>
         </div>
-        <nav id="history" class="history" aria-label="已保存的圆桌">
+        <nav id="history" class="history" aria-labelledby="studio-history-title">
           <p class="quiet">正在读取…</p>
         </nav>
         <details id="session-recovery" class="session-recovery" hidden>

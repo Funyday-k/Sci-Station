@@ -43,9 +43,7 @@
     const importButton = iconButton("import", "导入项目配置");
     actions.append(addButton, importButton);
     const label = history.previousElementSibling;
-    label.querySelector("h2").textContent = "项目";
     label.append(actions);
-    history.setAttribute("aria-label", "项目和圆桌");
 
     const dialog = element("dialog", "project-dialog project-management");
     dialog.setAttribute("aria-labelledby", "project-management-heading");
