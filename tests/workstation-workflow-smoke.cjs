@@ -375,6 +375,17 @@ async function enterAndRun(app, ui, fixture, gateway) {
   assert.deepEqual(turns.map(turn => turn.text).sort(), [...statements].sort());
   assert.ok(turns.every(turn => turn.status === "done"));
   for (const text of statements) await ui.visible("#rounds .message-body", text);
+  await ui.click("#room-tab-opinions");
+  await ui.visible("#meeting-opinions");
+  const sourceID = "round-1-" + turns[0].seat;
+  await ui.evaluate(id => { location.hash = id; }, sourceID);
+  await ui.visible('#room-tab-chat[aria-selected="true"]');
+  await ui.visible("#" + sourceID + " .message-body", turns[0].text);
+  await eventually(() => ui.evaluate(id => {
+    const source = document.getElementById(id).getBoundingClientRect();
+    const transcript = document.getElementById("table-scroll").getBoundingClientRect();
+    return source.bottom > transcript.top && source.top < transcript.bottom;
+  }, sourceID), "linked message is in view");
   assert.equal(complete.materials.length, 1, "reader handoff attached more than one source");
   const calls = gateway.calls.filter(call => call.kind === "statement");
   assert.deepEqual(calls.map(call => call.model).sort(), [...models].sort());

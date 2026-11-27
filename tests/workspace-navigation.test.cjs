@@ -369,3 +369,32 @@ test("Research confirms a dirty history traversal once and preserves Back and Fo
   assert.equal(history.state.workspacePosition, 2);
   assert.equal(browserChecks, 0);
 });
+
+test("project sidebar expands only the active project by default while honoring explicit overrides", () => {
+  const {isProjectCollapsed} = require("../web/static/project-sidebar.js");
+  // New user (no explicit overrides): active project expanded, others collapsed.
+  const fresh = {collapsedProjects: [], expandedProjects: []};
+  assert.equal(isProjectCollapsed("active", "active", fresh), false);
+  assert.equal(isProjectCollapsed("other", "active", fresh), true);
+  assert.equal(isProjectCollapsed("other", null, fresh), true);
+
+  // Existing user with explicitly collapsed project keeps it collapsed even when active.
+  const collapsedActive = {collapsedProjects: ["active"], expandedProjects: []};
+  assert.equal(isProjectCollapsed("active", "active", collapsedActive), true);
+
+  // Explicitly expanded inactive project stays expanded.
+  const expandedOther = {collapsedProjects: [], expandedProjects: ["other"]};
+  assert.equal(isProjectCollapsed("other", "active", expandedOther), false);
+  assert.equal(isProjectCollapsed("third", "active", expandedOther), true);
+
+  // Older release layout without expandedProjects still respects collapsedProjects.
+  const legacy = {collapsedProjects: ["legacy-closed"]};
+  assert.equal(isProjectCollapsed("legacy-closed", "legacy-closed", legacy), true);
+  assert.equal(isProjectCollapsed("active", "active", legacy), false);
+  assert.equal(isProjectCollapsed("other", "active", legacy), true);
+
+  // AI session sidebar starts collapsed by default in workspace-shell.html (<= 260px default sidebar width).
+  const shell = read("workspace-shell.html");
+  assert.match(shell, /id="workspace-session-sidebar"[^>]*\bhidden\b[^>]*\binert\b/);
+  assert.match(shell, /id="workspace-session-toggle"[^>]*aria-expanded="false"/);
+});

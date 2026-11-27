@@ -275,8 +275,8 @@
   function scrollAnchor() {
     const target = document.getElementById(location.hash.slice(1));
     if (target && $("rounds").contains(target)) {
-      setChatVisible(true);
-      scrollToMessage(target);
+      openRoomTab("chat");
+      requestAnimationFrame(() => scrollToMessage(target));
     }
   }
   const normalizeNewlines = (text) => String(text).replace(/\r\n|\r/g, "\n");
@@ -1836,14 +1836,15 @@
     pairedChat = paired;
     paintChatLayout();
   }
+  function openRoomTab(tab, { focus = false } = {}) {
+    closeChanges(false);
+    window.RoundtableChildren?.close({ restoreFocus: false });
+    setRoomTab(tab);
+    setChatVisible(true);
+    if (focus) (tab === "opinions" ? $("room-tab-opinions") : $("run-form").hidden ? $("room-tab-chat") : $("run-note"))?.focus({ preventScroll: true });
+  }
   window.RoundtableRoomPanel = Object.freeze({
-    openTab(tab, { focus = false } = {}) {
-      closeChanges(false);
-      window.RoundtableChildren?.close({ restoreFocus: false });
-      setRoomTab(tab, { focus: false });
-      setChatVisible(true);
-      if (focus) (tab === "opinions" ? $("room-tab-opinions") : $("run-form").hidden ? $("room-tab-chat") : $("run-note"))?.focus({ preventScroll: true });
-    },
+    openTab: openRoomTab,
     setTab: setRoomTab,
     activeTab: () => roomTab,
   });
@@ -2824,8 +2825,9 @@
       note.value = lines.join("\n");
       state.agendaNote = entered ? "" : title;
     }
-    setChatVisible(true);
-    paintDiscussionControls(); paintTextLimit("run-note"); note.focus();
+    paintDiscussionControls();
+    paintTextLimit("run-note");
+    openRoomTab("chat", { focus: true });
   });
   async function cancelRun() {
     if (state.writing || !state.selected) return;
@@ -3446,8 +3448,7 @@
         if (narrowWorkspace.matches) setChatVisible(false);
         showRoomDrawer("agenda-toggle");
       } else {
-        window.RoundtableOpinions?.close({restoreFocus:false});
-        setChatVisible(true);
+        openRoomTab("chat");
       }
       requestAnimationFrame(() => {
         if (!target.isConnected) return;
