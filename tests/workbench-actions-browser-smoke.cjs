@@ -280,13 +280,14 @@ async function main(binary) {
     await page.locator(".lab-turn-user").filter({hasText:original}).waitFor();
     await page.locator(".lab-turn-answer").filter({hasText:"excerpt"}).waitFor();
     const reply = page.locator("#lab-reply");
+    const readyReply = page.locator("#lab-reply:enabled");
     await reply.fill("Preserve this unsent follow-up.");
     await page.locator("#lab-draft-trigger").click();
     await page.locator("#lab-save-reply-draft").click();
     await page.locator("#lab-reply-draft-state").filter({hasText:"草稿已保存"}).waitFor();
     await page.locator("#lab-draft-dialog footer [data-lab-close]").click();
     await page.reload();
-    await reply.waitFor();
+    await readyReply.waitFor();
     assert.equal(await reply.inputValue(), "Preserve this unsent follow-up.");
     await page.locator("#workspace-session-toggle").click();
     await page.locator("#lab-history button").filter({hasText:original}).waitFor();
@@ -299,6 +300,7 @@ async function main(binary) {
     await roundTripRecommendations();
     assert.equal(new URL(page.url()).searchParams.get("run"),savedThread);
     await page.locator("#local-list").getByText("Evaporation", {exact: true}).waitFor();
+    await readyReply.waitFor();
     assert.equal(await reply.inputValue(), "Preserve this unsent follow-up.");
     const sourceChatURL = page.url();
     const transferCheckURL = app.origin + "/api/studio/materials/transfer-check";
@@ -335,6 +337,7 @@ async function main(binary) {
     assert.equal(await page.locator("#local-list").getByText("Evaporation.txt").count(), 0);
     await page.goto(sourceChatURL);
     await page.locator("#local-list").getByText("Evaporation", {exact: true}).waitFor();
+    await readyReply.waitFor();
     assert.equal(await reply.inputValue(), "Preserve this unsent follow-up.");
     assert.equal(await page.locator("#local-list").getByText("Capture.txt").count(), 0);
 
