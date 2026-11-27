@@ -335,6 +335,20 @@ async function main(binary) {
     await edit.waitFor({state:"hidden"});
     assert.ok((await api("/api/research/projects?archived=1")).some(p=>p.id===created.id));
     assert.equal((await api("/api/research/projects")).length,2);
+    for (const [id, available] of [[a.id, true], [b.id, false]]) {
+      const response = page.waitForResponse(r => r.url().endsWith("/api/research/modules?project="+id) && r.ok());
+      await page.goto(host.origin+"/studio?project="+id);
+      await response;
+      const chat = page.locator("#workspace-ai-modes [data-ai-mode=single]");
+      await chat.waitFor();
+      if (available) {
+        await page.waitForFunction(id => document.querySelector("[data-ai-mode=single]")?.getAttribute("href") === "/lab?project="+id, id);
+      } else {
+        assert.equal(await chat.getAttribute("aria-disabled"), "true");
+        assert.equal(await chat.getAttribute("href"), null);
+        assert.equal(await page.locator("[data-ai-mode=roundtable]").getAttribute("aria-current"), "page");
+      }
+    }
     assert.deepEqual(errors,[]);assert.deepEqual(gateway.errors,[]);
     console.log("Shell inspector, reader inspector, project tree, width, tab order, narrow layout, scoped single-seat AI and restart passed.");
   }catch(err){
