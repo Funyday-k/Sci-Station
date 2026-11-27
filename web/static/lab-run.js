@@ -821,6 +821,8 @@
       importedMaterials=materials;displaySelected();
     }
     return {selectProject,updateComposer,importTransfer,activeRoom:()=>visibleRoom,activeThread:()=>active,
+      restoringDraft:()=>Boolean(restoringDraft),
+      handoffDraftStamp:()=>JSON.stringify([active,selected.map(item=>item.citation),importedMaterials.map(item=>item.id),currentResource()]),
       saveDraft:()=>active ? replyDraft.save() : questionDraft.save(),
       prepareHandoff:async pid=>{
         if(restoringDraft) await restoringDraft;

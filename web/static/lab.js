@@ -28,6 +28,12 @@
     });
     return checked.materials;
   }
+  async function refreshReviewedMaterials(input) {
+    const verified=await checkedMaterials(input);
+    if(JSON.stringify(verified)!==JSON.stringify(input.materials)) throw Error(text(
+      "附件有变化，请重新打开转换预览。","The attachments changed. Open the transfer preview again."));
+    return verified;
+  }
   const projectContext = window.SciLabContext.mount({req, tell, resetResource,settingsChanged:(id,rev)=>connections.updateRevision(id,rev)});
   const connections=window.SciLabConnectors.mount({req,tell,resetResource,settingsChanged:(id,config)=>projectContext.updateRevision(id,config.revision),
     showPreview(value){preview=value;$("resource-text").value=value.text;$("preview-panel").hidden=false;}
@@ -227,7 +233,7 @@
       const {workspace}=await req("/api/health");
       const input=handoff.readModeTransfer("single",{workspace,projectId:owner});
       if(!input || ticket!==transferSequence) return;
-      if(input.sourceSessionId || input.materials.length) input.materials=await checkedMaterials(input);
+      input.materials=await checkedMaterials(input);
       if(ticket!==transferSequence) return;
       pendingTransfer=input;$("lab-transfer-notice").hidden=false;
     } catch(error) {if(ticket===transferSequence) tell(error.message);}
@@ -236,8 +242,9 @@
     const query=transferQuery(id);query.set(queryKey,room);
     return path+"?"+query;
   }
-  function showTransfer(direction,input,limit="",pendingIds) {
-    transferReview={direction,input,originThread:runs.activeThread(),pendingIds};
+  function showTransfer(direction,input,limit="",retainedMaterials) {
+    transferReview={direction,input,originThread:runs.activeThread(),retainedMaterials,
+      epoch:transferSequence,draft:runs.handoffDraftStamp()};
     const incoming=direction==="in";
     $("lab-transfer-heading").textContent=incoming ? text("复核圆桌上下文","Review Roundtable context") : text("转到圆桌","Switch to Roundtable");
     $("lab-transfer-apply").textContent=incoming ? text("加入新对话草稿","Add to new chat draft") : text("在圆桌中复核","Review in Roundtable");
@@ -258,17 +265,28 @@
     handoff.clearModeTransfer("single");pendingTransfer=null;$("lab-transfer-notice").hidden=true;
     const url=new URL(location.href);url.searchParams.delete("fromRoundtable");window.SciStationNav.commitURL(url,"replace");
   }
-  action("lab-transfer-preview",()=>{if(pendingTransfer) showTransfer("in",pendingTransfer);});
+  function reviewIsCurrent(review) {
+    return transferReview===review && $("lab-transfer-dialog").open && review.epoch===transferSequence &&
+      review.originThread===runs.activeThread() && scopeAvailable() && review.input.projectId===projectId();
+  }
+  action("lab-transfer-preview",async()=>{
+    const input=pendingTransfer, epoch=transferSequence, thread=runs.activeThread();
+    if(!input) return;
+    const materials=await checkedMaterials(input);
+    if(epoch===transferSequence && thread===runs.activeThread() && scopeAvailable() && input===pendingTransfer) {
+      showTransfer("in",{...input,materials});
+    }
+  });
   action("lab-transfer-dismiss",finishPendingTransfer);
   action("lab-transfer-apply",async()=>{
-    if(!transferReview) return;
-    const {direction,input,originThread,pendingIds}=transferReview;
-    if(!scopeAvailable() || input.projectId!==projectId()) throw Error(text("当前范围已改变。","The active scope changed."));
+    const review=transferReview;
+    if(!review || !reviewIsCurrent(review)) throw Error(text("当前范围已改变。","The active scope changed."));
+    const {direction,input,originThread,retainedMaterials}=review;
     const context=$("lab-transfer-context").value.trim();
     if(!context) throw Error(text("请填写要带入的内容。","Enter the context to carry over."));
+    const materials=input.roundtablePreset ? await checkedMaterials(input) : await refreshReviewedMaterials(input);
+    if(!reviewIsCurrent(review)) return;
     if(direction==="in"){
-      const materials=input.sourceSessionId || input.materials.length ? await checkedMaterials(input) : input.materials;
-      if(!scopeAvailable() || input.projectId!==projectId()) return;
       const provenance=input.sourceSessionId ? "\n\nSource Roundtable: "+sourceUrl("/studio","session",input.projectId,input.sourceSessionId) : "";
       await runs.importTransfer({...input,materials},context+provenance);
       finishPendingTransfer();$("lab-transfer-dialog").close();$("question").focus();
@@ -276,26 +294,33 @@
     }
     if(!canLeave()) return;
     await runs.saveDraft();
-    const materials=input.sourceSessionId || input.materials.length ? await checkedMaterials(input) : input.materials;
-    if(!scopeAvailable() || input.projectId!==projectId() || originThread!==runs.activeThread()) return;
-    const pending=pendingIds && materials.filter(material=>pendingIds.has(material.id));
+    const pending=retainedMaterials?.length && !materials.length ?
+      await refreshReviewedMaterials({...input,sourceSessionId:originThread,materials:retainedMaterials}) : retainedMaterials;
+    if(!reviewIsCurrent(review)) return;
+    if(review.draft!==runs.handoffDraftStamp()) throw Error(text("草稿附件有变化，请重新打开转换预览。",
+      "The draft attachments changed. Open the transfer preview again."));
     if(!await retainModeDraft(input.workspace,input.projectId,originThread,pending)) return;
+    if(!reviewIsCurrent(review)) return;
     handoff.writeModeTransfer("roundtable",{...input,context,materials});
     const query=transferQuery(input.projectId);query.set("fromLab","1");
     handingOff=true;location.assign("/studio?"+query);
   });
+  let openingTransfer=false;
   window.addEventListener("sci:change-ai-mode",event=>{
     if(event.detail?.mode!=="roundtable") return;
     const room=runs.activeRoom(), owner=projectId(), draft=$(room?"lab-reply":"question").value.trim();
     if(!room && !draft && !runs.hasDraft() && !source) return;
     event.preventDefault();
-    if($("lab-transfer-dialog").open) return;
+    if($("lab-transfer-dialog").open || openingTransfer) return;
+    openingTransfer=true;
+    const epoch=transferSequence, thread=runs.activeThread(), sourceStamp=runs.restoringDraft() ? null : runs.handoffDraftStamp();
+    const current=()=>epoch===transferSequence && scopeAvailable() && owner===projectId() && thread===runs.activeThread();
     void (async()=>{
       try {
         const {workspace}=await req("/api/health");
         if(room && !handoff.scopeOwnsModeSource(room,owner)) return;
         const pending=await runs.prepareHandoff(owner);
-        if(!scopeAvailable() || owner!==projectId() || room?.id!==runs.activeRoom()?.id) return;
+        if(!current() || room?.id!==runs.activeRoom()?.id) return;
         const materials=[...new Map([...pending,...(room?.materials || [])].map(item=>[item.id,item])).values()];
         const parts=[];
         if(room?.topic) parts.push(window.SciLabRun.messageText(room.topic,true));
@@ -305,13 +330,22 @@
         if(source) parts.push(source.excerpt);
         const raw=parts.filter(Boolean).join("\n\n") || text("请讨论这些研究材料。","Discuss these research sources.");
         const context=Array.from(raw).slice(0,handoff.modeContextLimit).join("");
-        const limit=raw!==context || materials.length>12 ? text("预览包含上下文的前 2,400 字和最多 12 份材料。原对话保留完整记录。",
-          "The preview contains the first 2,400 characters and up to 12 attachments. The original chat keeps the full record.") : "";
-        const input={workspace,projectId:owner,sourceSessionId:room?.id || "",context,materials:materials.slice(0,12)};
-        if(input.sourceSessionId || input.materials.length) input.materials=await checkedMaterials(input);
-        if(!scopeAvailable() || owner!==projectId() || room?.id!==runs.activeRoom()?.id) return;
-        showTransfer("out",input,limit,new Set(pending.map(item=>item.id)));
-      } catch(error) {tell(error.message);}
+        const overflow=materials.length>12;
+        const limit=[raw===context ? "" : text("预览包含上下文的前 2,400 字。原对话保留完整记录。",
+          "The preview contains the first 2,400 characters. The original chat keeps the full record."),
+          overflow ? text("原对话和草稿的附件超过 12 份。本次只带入文字，附件留在原处。",
+            "The original chat and draft have more than 12 attachments. This transfer carries text only and leaves all attachments in place.") : ""].filter(Boolean).join(" ");
+        const input={workspace,projectId:owner,sourceSessionId:room?.id || "",context,materials:overflow ? [] : materials};
+        input.materials=await checkedMaterials(input);
+        const ids=new Set(pending.map(item=>item.id));
+        const retained=overflow && pending.length ? await checkedMaterials({...input,materials:pending}) :
+          input.materials.filter(item=>ids.has(item.id));
+        if(!current() || room?.id!==runs.activeRoom()?.id) return;
+        if(sourceStamp!==null && sourceStamp!==runs.handoffDraftStamp()) throw Error(text("草稿附件有变化，请重新切换模式。",
+          "The draft attachments changed. Switch modes again."));
+        showTransfer("out",input,limit,retained);
+      } catch(error) {if(current()) tell(error.message);}
+      finally {openingTransfer=false;}
     })();
   });
   action("new",()=>{if(canLeave()) editTemplate(null);});

@@ -229,11 +229,30 @@ async function main(binary) {
 
     await attachExcerpt("Evaporation");
     const sourceChatURL = page.url();
+    const transferCheckURL = app.origin + "/api/studio/materials/transfer-check";
+    async function rejectChangedRevision(transfer) {
+      await page.route(transferCheckURL, async route => {
+        const response = await route.fetch();
+        const json = await response.json();
+        json.materials[0].revision = "changed-fixture-revision";
+        await route.fulfill({response, json});
+      });
+      await transfer.locator("#lab-transfer-apply").click();
+      await transfer.getByText("附件有变化，请重新打开转换预览。", {exact: true}).waitFor();
+      assert.equal(await transfer.isVisible(), true);
+      await page.unroute(transferCheckURL);
+      await transfer.locator("footer [data-lab-close]").click();
+    }
     await page.locator('[data-ai-mode="roundtable"]').click();
     const transfer = page.locator("#lab-transfer-dialog");
     await transfer.waitFor();
     for (const name of ["Capture.txt", "Evaporation.txt"]) await transfer.locator("#lab-transfer-materials").getByText(name, {exact: true}).waitFor();
     assert.match(await transfer.locator("#lab-transfer-context").inputValue(), /Preserve this unsent follow-up/);
+    await rejectChangedRevision(transfer);
+    assert.equal(page.url(), sourceChatURL);
+    assert.equal(await reply.inputValue(), "Preserve this unsent follow-up.");
+    await page.locator('[data-ai-mode="roundtable"]').click();
+    await transfer.waitFor();
     await transfer.locator("#lab-transfer-apply").click();
     const imported = page.locator("#studio-mode-import");
     await imported.waitFor();
@@ -258,6 +277,9 @@ async function main(binary) {
     await page.locator("#lab-transfer-preview").click();
     assert.equal(await page.locator("#project").inputValue(), project.id);
     for (const name of ["Capture.txt", "Evaporation.txt"]) await transfer.locator("#lab-transfer-materials").getByText(name, {exact: true}).waitFor();
+    await rejectChangedRevision(transfer);
+    assert.equal(await question.inputValue(), "");
+    await page.locator("#lab-transfer-preview").click();
     await transfer.locator("#lab-transfer-apply").click();
     await page.waitForFunction(() => document.getElementById("question").value.includes("Preserve this unsent follow-up"));
     for (const name of ["Capture.txt", "Evaporation.txt"]) await page.locator("#local-list").getByText(name, {exact: true}).waitFor();
